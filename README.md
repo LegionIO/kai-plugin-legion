@@ -1,6 +1,16 @@
 # kai-plugin-legion
 
-Legion daemon integration plugin for [Kai desktop](https://github.com/LegionIO/kai-desktop). Provides daemon health monitoring, event streaming, proactive GAIA threads, workflow routing, knowledge panels, marketplace tooling, GitHub views, and sub-agent management.
+Legion daemon integration plugin for [Kai desktop](https://github.com/LegionIO/kai-desktop). Provides daemon health monitoring, event streaming, proactive GAIA threads, workflow routing, knowledge panels, marketplace tooling, GitHub views, sub-agent management, and **daemon-powered LLM inference**.
+
+## Inference Routing
+
+When this plugin is installed and the Legion daemon is online, **all LLM inference automatically routes through the daemon's `/api/llm/inference` endpoint**. This upgrades Kai's standard inference pipeline to use your local daemon for model execution, tool handling, and context management.
+
+- **Daemon online** → All inference goes through Legion daemon
+- **Daemon offline** → Automatic fallback to Kai's standard Mastra pipeline
+- **Seamless switching** → No manual intervention required
+
+The daemon is the **primary inference provider** when this plugin is active — not an optional backend. Configure the daemon URL in Settings > Legion > Connection.
 
 ## Quick Start
 
@@ -130,6 +140,7 @@ The plugin registers 8 tools that Claude can call during conversations:
 | `conversations:read/write` | Manage Legion/GAIA threads |
 | `navigation:open` | Open panels and conversations programmatically |
 | `state:publish` | Publish plugin state to renderer |
+| `agent:inference-provider` | Route LLM inference through daemon backend |
 
 ## Releasing
 

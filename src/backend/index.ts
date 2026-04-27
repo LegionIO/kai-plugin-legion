@@ -25,7 +25,8 @@ import {
 import { registerUi, updateNavigationItems, updateBanner } from './ui.js';
 import { registerTools } from './tools.js';
 import { registerActionHandlers } from './actions.js';
-import { ensureBackendRegistration, setBackendRegistered } from './backend.js';
+import { ensureBackendRegistration } from './backend.js';
+import { setInferenceApi } from './daemon-inference.js';
 import { ensureEventStream, stopEventStream } from './events.js';
 import {
   hydrateManagedConversations,
@@ -58,6 +59,8 @@ export async function activate(api: PluginAPI): Promise<void> {
 
   // Wire navigation updater into state module (breaks circular dep).
   setNavigationUpdater(updateNavigationItems);
+  // Wire API into inference module.
+  setInferenceApi(api);
 
   registerUi(api);
   registerTools(api);
@@ -84,7 +87,7 @@ export async function activate(api: PluginAPI): Promise<void> {
 export async function deactivate(): Promise<void> {
   clearStatusPoll();
   stopEventStream();
-  setBackendRegistered(false);
+  setInferenceApi(null);
   currentApi = null;
 }
 

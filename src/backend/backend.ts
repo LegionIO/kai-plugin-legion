@@ -1,23 +1,17 @@
 import type { PluginAPI, PluginConfig } from '../shared/types.js';
-import { BACKEND_KEY } from '../shared/constants.js';
+import { isDaemonOnline, streamDaemonInference } from './daemon-inference.js';
 
 /* ── Module-scoped registration flag ── */
 
 let backendRegistered = false;
 
-/* ── Public accessors ── */
-
-export function setBackendRegistered(val: boolean): void {
-  backendRegistered = val;
-}
-
 /* ── Backend registration / unregistration ── */
 
 /**
- * Evaluate whether the backend should be considered "registered" based on
- * config flags. The Kai desktop plugin API does not currently expose
- * `agent.registerBackend` / `agent.unregisterBackend`, so this function
- * only tracks the logical state and emits events for internal bookkeeping.
+ * Register or unregister the Legion daemon as the primary inference provider.
+ * When registered and the daemon is online, all LLM inference routes through
+ * the daemon's /api/llm/inference endpoint. When offline, Kai's standard
+ * Mastra pipeline takes over automatically.
  */
 export function ensureBackendRegistration(api: PluginAPI, config: PluginConfig): void {
   const shouldRegister = Boolean(
@@ -25,13 +19,17 @@ export function ensureBackendRegistration(api: PluginAPI, config: PluginConfig):
   );
 
   if (shouldRegister && !backendRegistered) {
+    api.agent.registerInferenceProvider({
+      name: 'legion-daemon',
+      isAvailable: () => isDaemonOnline(),
+      stream: (options) => streamDaemonInference(options),
+    });
     backendRegistered = true;
-    api.state.emitEvent('backend-registered', { key: BACKEND_KEY });
     return;
   }
 
   if (!shouldRegister && backendRegistered) {
+    api.agent.unregisterInferenceProvider();
     backendRegistered = false;
-    api.state.emitEvent('backend-unregistered', { key: BACKEND_KEY });
   }
 }

@@ -2,7 +2,7 @@
   "name": "legion",
   "displayName": "Legion",
   "version": "1.0.1",
-  "description": "Legion integration for Kai — daemon health, event streaming, proactive threads, workflow routing, knowledge panels, marketplace tooling, GitHub views, sub-agent monitoring, and an optional daemon backend.",
+  "description": "Legion integration for Kai — daemon health, event streaming, proactive threads, workflow routing, knowledge panels, marketplace tooling, GitHub views, sub-agent monitoring, and daemon-powered LLM inference.",
   "icon": {
     "lucide": "brain-circuit"
   },
@@ -22,7 +22,8 @@
     "conversations:read",
     "conversations:write",
     "navigation:open",
-    "state:publish"
+    "state:publish",
+    "agent:inference-provider"
   ],
   "priority": 20,
   "required": false,
