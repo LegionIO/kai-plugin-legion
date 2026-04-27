@@ -99,7 +99,7 @@ The plugin uses **esbuild** with two bundled entry points:
 After loading, open **Settings > Legion** in Kai desktop. The plugin exposes 25 config fields across multiple tabs. At minimum you need:
 
 - **Daemon URL** — e.g. `http://127.0.0.1:4567`
-- **Config Dir** — path containing `crypt.json` for JWT auth (auto-detected from `~/.kai/settings`, `~/.legion/settings`, or `~/.config/legion/settings`)
+- **Config Dir** — path containing `crypt.json` for JWT auth (defaults to `~/.legionio/settings`)
 
 ## Panels
 
