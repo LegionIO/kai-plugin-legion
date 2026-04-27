@@ -3,8 +3,8 @@
   "displayName": "Legion",
   "version": "1.0.0",
   "description": "Legion integration for Kai — daemon health, event streaming, proactive threads, workflow routing, knowledge panels, marketplace tooling, GitHub views, sub-agent monitoring, and an optional daemon backend.",
-  "main": "main.js",
-  "renderer": "renderer.js",
+  "icon": { "lucide": "brain-circuit" },
+  "author": "John Hollow <https://github.com/iamhollow>",
   "permissions": [
     "config:read",
     "config:write",
@@ -20,8 +20,7 @@
     "conversations:read",
     "conversations:write",
     "navigation:open",
-    "state:publish",
-    "agent:backend"
+    "state:publish"
   ],
   "priority": 20,
   "required": false,
