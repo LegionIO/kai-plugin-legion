@@ -42,7 +42,6 @@ export function getPluginConfig(api: PluginAPI): PluginConfig {
     notificationsEnabled: data.notificationsEnabled !== false,
     nativeNotifications: data.nativeNotifications !== false,
     autoConnectEvents: data.autoConnectEvents !== false,
-    openProactiveThread: Boolean(data.openProactiveThread),
     healthPollMs: clampNumber(data.healthPollMs, STATUS_POLL_MIN_MS, STATUS_POLL_MAX_MS, DEFAULTS.healthPollMs),
     eventsRecentCount: clampNumber(data.eventsRecentCount, 1, MAX_NOTIFICATIONS, DEFAULTS.eventsRecentCount),
     sseReconnectMs: clampNumber(
@@ -52,10 +51,8 @@ export function getPluginConfig(api: PluginAPI): PluginConfig {
       DEFAULTS.sseReconnectMs,
     ),
     workspaceThreadTitle: cleanText(data.workspaceThreadTitle) || DEFAULTS.workspaceThreadTitle,
-    proactiveThreadTitle: cleanText(data.proactiveThreadTitle) || DEFAULTS.proactiveThreadTitle,
     bootstrapPrompt:
       typeof data.bootstrapPrompt === 'string' ? data.bootstrapPrompt : DEFAULTS.bootstrapPrompt,
-    proactivePromptPrefix: cleanText(data.proactivePromptPrefix) || DEFAULTS.proactivePromptPrefix,
     knowledgeRagEnabled: data.knowledgeRagEnabled !== false,
     knowledgeCaptureEnabled: data.knowledgeCaptureEnabled !== false,
     knowledgeScope: ['global', 'local', 'all'].includes(cleanText(data.knowledgeScope))
@@ -74,17 +71,18 @@ export function getPluginConfig(api: PluginAPI): PluginConfig {
 }
 
 /**
- * Resolves the config directory by checking a prioritized list of candidates.
- * Returns the first candidate that exists on disk, or the first candidate if none exist.
+ * Resolves the config directory.
+ * The daemon always runs from ~/.legionio/settings, so we check:
+ * 1. User-configured configDir (if set)
+ * 2. ~/.legionio/settings (daemon default)
+ * Returns the first candidate that exists on disk, or ~/.legionio/settings if none exist.
  */
 export function getResolvedConfigDir(config: PluginConfig): string {
   const candidates: string[] = [];
   if (cleanText(config.configDir)) candidates.push(cleanText(config.configDir));
-  candidates.push(join(homedir(), '.kai', 'settings'));
-  candidates.push(join(homedir(), '.legion', 'settings'));
-  candidates.push(join(homedir(), '.config', 'legion', 'settings'));
+  candidates.push(join(homedir(), '.legionio', 'settings'));
 
-  return candidates.find((candidate) => existsSync(candidate)) || candidates[0];
+  return candidates.find((candidate) => existsSync(candidate)) || join(homedir(), '.legionio', 'settings');
 }
 
 /**
