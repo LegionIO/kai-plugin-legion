@@ -1,6 +1,6 @@
 {
   "name": "kai-plugin-legion",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "John Hollow <https://github.com/iamhollow>",
   "private": true,
   "type": "module",
