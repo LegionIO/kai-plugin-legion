@@ -94,7 +94,6 @@ export async function* streamDaemonInference(
     messages: normalizedMessages,
     stream: true,
     ...(options.conversationId ? { conversation_id: options.conversationId } : {}),
-    ...(options.modelKey && options.modelKey !== '__daemon_default__' ? { model: options.modelKey } : {}),
     ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
   };
 
