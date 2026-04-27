@@ -1,4 +1,4 @@
-import type { PluginAPI, DaemonResult } from './types.js';
+import type { PluginAPI, DaemonResult } from '../shared/types.js';
 import { getPluginConfig } from './config.js';
 import { daemonJson } from './daemon-client.js';
 import {
@@ -16,11 +16,10 @@ import { runDoctorChecks } from './doctor.js';
 import { createManagedConversation, openProactiveConversation } from './conversations.js';
 import { refreshWorkflowTasks } from './workflows.js';
 import {
-  SETTINGS_COMPONENT,
   PANEL_DEFINITIONS,
   BANNER_ID,
   MAX_NOTIFICATIONS,
-} from './constants.js';
+} from '../shared/constants.js';
 import { cleanText, clampNumber } from './utils.js';
 import { handleDaemonCrudAction } from './actions-daemon.js';
 
@@ -230,8 +229,8 @@ export function registerActionHandlers(api: PluginAPI): void {
     }
   };
 
-  // Bind the dispatcher to the settings component, every panel, and the banner.
-  api.onAction(`settings:${SETTINGS_COMPONENT}`, handleAction);
+  // Bind the dispatcher to the settings view, every panel, and the banner.
+  api.onAction('settings:legion', handleAction);
   for (const panel of PANEL_DEFINITIONS) {
     api.onAction(`panel:${panel.id}`, handleAction);
   }

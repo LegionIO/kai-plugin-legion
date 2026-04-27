@@ -7,7 +7,7 @@
  * action passthrough.
  */
 
-import type { PluginAPI, PluginState, DaemonResult, Notification } from './types.js';
+import type { PluginAPI, PluginState, DaemonResult, Notification } from '../shared/types.js';
 import { getPluginConfig } from './config.js';
 import { getResolvedConfigDir, resolveAuthSource } from './config.js';
 import { daemonJson } from './daemon-client.js';
@@ -22,10 +22,10 @@ import {
   summarizeWorkers,
   extractCapabilities,
 } from './state.js';
-import { registerUi, updateNavigationItems, updateBanner, updateThreadDecoration, registerConversationDecoration } from './ui.js';
+import { registerUi, updateNavigationItems, updateBanner } from './ui.js';
 import { registerTools } from './tools.js';
 import { registerActionHandlers } from './actions.js';
-import { ensureBackendRegistration, isBackendRegistered, setBackendRegistered } from './backend.js';
+import { ensureBackendRegistration, setBackendRegistered } from './backend.js';
 import { ensureEventStream, stopEventStream } from './events.js';
 import {
   hydrateManagedConversations,
@@ -34,7 +34,7 @@ import {
   managedConversationIds,
 } from './conversations.js';
 import { hydrateWorkflowStore, refreshWorkflowTasks } from './workflows.js';
-import { BACKEND_KEY, MAX_NOTIFICATIONS } from './constants.js';
+import { MAX_NOTIFICATIONS } from '../shared/constants.js';
 import { cleanText, clampNumber } from './utils.js';
 
 // -------------------------------------------------------------------------- //
@@ -84,15 +84,6 @@ export async function activate(api: PluginAPI): Promise<void> {
 export async function deactivate(): Promise<void> {
   clearStatusPoll();
   stopEventStream();
-
-  if (isBackendRegistered() && currentApi) {
-    try {
-      currentApi.agent.unregisterBackend(BACKEND_KEY);
-    } catch {
-      // Ignore unload-time cleanup failures.
-    }
-  }
-
   setBackendRegistered(false);
   currentApi = null;
 }
@@ -167,7 +158,6 @@ export async function syncRuntime(
       managedConversationIds: [...managedConversationIds],
     }, options);
     updateBanner(api, config, state);
-    updateThreadDecoration(api, state, config);
     return state;
   }
 
@@ -187,7 +177,6 @@ export async function syncRuntime(
       managedConversationIds: [...managedConversationIds],
     }, options);
     updateBanner(api, config, state);
-    updateThreadDecoration(api, state, config);
     return state;
   }
 
@@ -250,7 +239,6 @@ export async function syncRuntime(
 
   lastHealthStatus = (nextState as Record<string, unknown>).status as string;
   updateBanner(api, config, nextState);
-  updateThreadDecoration(api, nextState, config);
   ensureEventStream(api);
   return nextState;
 }
@@ -440,21 +428,13 @@ export async function createDaemonSubAgent(
   if (result.ok && result.data) {
     const data = result.data as Record<string, unknown>;
     const taskId = data.task_id as string | undefined;
-    const taskStatus = data.status as string | undefined;
 
     if (taskId) {
-      const conversation = await createManagedConversation(api, {
+      await createManagedConversation(api, {
         title: `Sub-agent: ${taskId.slice(0, 8)}`,
         kind: 'subagent',
         open: false,
       });
-      const conversationId = conversation.conversationId as string;
-      if (conversationId) {
-        const statusLabel = taskStatus
-          ? `Legion \u00b7 sub-agent \u00b7 ${taskStatus}`
-          : 'Legion \u00b7 sub-agent';
-        registerConversationDecoration(api, conversationId, statusLabel);
-      }
     }
   }
 

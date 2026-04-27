@@ -1,8 +1,8 @@
-import type { PluginAPI, DaemonResult } from './types.js';
+import type { PluginAPI, DaemonResult } from '../shared/types.js';
 import { daemonJson } from './daemon-client.js';
 import { createManagedConversation } from './conversations.js';
 import { knowledgeQuery } from './knowledge.js';
-import { PANEL_DEFINITIONS, DEFAULT_TIMEOUT_MS } from './constants.js';
+import { PANEL_DEFINITIONS, DEFAULT_TIMEOUT_MS } from '../shared/constants.js';
 
 /**
  * Register all Legion tools with the Kai plugin API.

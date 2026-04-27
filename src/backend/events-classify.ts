@@ -5,8 +5,8 @@
  * detects proactive.* events that should be surfaced in the proactive thread.
  */
 
-import type { Notification, ProactiveMessage } from './types.js';
-import { SEVERITY_MAP } from './constants.js';
+import type { Notification, ProactiveMessage } from '../shared/types.js';
+import { SEVERITY_MAP } from '../shared/constants.js';
 import { cleanText } from './utils.js';
 
 /* -------------------------------------------------------------------------- */

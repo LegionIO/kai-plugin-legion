@@ -14,7 +14,7 @@ import type {
   PluginConfig,
   Workflow,
   TriggerEnvelope,
-} from './types.js';
+} from '../shared/types.js';
 import type { DaemonResult } from './daemon-client.js';
 import { getPluginConfig } from './config.js';
 import { getWorkflowStore, replaceState } from './state.js';

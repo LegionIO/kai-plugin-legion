@@ -1,8 +1,7 @@
-import type { PluginAPI, ProactiveMessage } from './types.js';
+import type { PluginAPI, ProactiveMessage } from '../shared/types.js';
 import { getPluginConfig } from './config.js';
 import { getCurrentState, replaceState, updateState } from './state.js';
-import { registerConversationDecoration } from './ui.js';
-import { PROACTIVE_THREAD_ID, BACKEND_KEY } from './constants.js';
+import { PROACTIVE_THREAD_ID, BACKEND_KEY } from '../shared/constants.js';
 import { cleanText } from './utils.js';
 import { randomUUID } from 'node:crypto';
 
@@ -21,11 +20,6 @@ export function hydrateManagedConversations(api: PluginAPI): void {
     if (metadata.pluginName !== 'legion') continue;
 
     managedConversationIds.add(conversation.id);
-    registerConversationDecoration(
-      api,
-      conversation.id,
-      metadata.legionKind === 'proactive' ? 'GAIA' : 'Legion',
-    );
   }
 }
 
@@ -86,16 +80,6 @@ export async function createManagedConversation(
   });
 
   managedConversationIds.add(conversationId);
-  const decorationLabel = kind === 'proactive'
-    ? 'GAIA'
-    : kind === 'subagent'
-      ? `Legion \u00b7 sub-agent`
-      : `Legion \u00b7 ${kind}`;
-  registerConversationDecoration(
-    api,
-    conversationId,
-    decorationLabel,
-  );
 
   if (initialPrompt && (!existing || (existing.messageCount || 0) === 0)) {
     api.conversations.appendMessage(conversationId, {
@@ -159,7 +143,6 @@ export async function ensureProactiveConversation(api: PluginAPI): Promise<strin
   const existing = api.conversations.get(PROACTIVE_THREAD_ID);
   if (existing) {
     managedConversationIds.add(existing.id);
-    registerConversationDecoration(api, existing.id, 'GAIA');
     replaceState(api, {
       proactiveConversationId: existing.id,
       managedConversationIds: [...managedConversationIds],
@@ -217,10 +200,6 @@ export async function appendProactiveMessage(
     createdAt: proactiveMessage.timestamp,
   });
   api.conversations.markUnread(conversationId, true);
-
-  // Update GAIA thread decoration to reflect the latest event type
-  const intentLabel = proactiveMessage.intent || 'activity';
-  registerConversationDecoration(api, conversationId, `GAIA \u00b7 ${intentLabel}`);
 
   const state = updateState(
     api,

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import type { PluginAPI, DaemonResult } from './types.js';
+import type { PluginAPI, DaemonResult } from '../shared/types.js';
 import { daemonJson } from './daemon-client.js';
 import { cleanText, clampNumber } from './utils.js';
 

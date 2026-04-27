@@ -1,6 +1,5 @@
 /**
  * Type definitions for the Legion plugin main process.
- * Ported from legion-plugin/main.mjs v0.2.0.
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

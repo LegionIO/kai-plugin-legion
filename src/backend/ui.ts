@@ -1,5 +1,4 @@
-import type { PluginAPI } from '../shared/types.js';
-import type { PluginConfig, PluginState } from '../shared/types.js';
+import type { PluginAPI, PluginConfig, PluginState } from '../shared/types.js';
 import {
   PANEL_DEFINITIONS,
   BANNER_ID,
@@ -46,7 +45,6 @@ export function registerUi(api: PluginAPI): void {
 
 export function updateNavigationItems(api: PluginAPI, state: PluginState): void {
   const stateRecord = state as Record<string, unknown>;
-  const status = stateRecord.status as string | undefined;
   const unreadNotifications = Number(stateRecord.unreadNotificationCount || 0);
   const workflowCounts = (stateRecord.workflowCounts || {
     active: 0,
@@ -73,6 +71,8 @@ export function updateNavigationItems(api: PluginAPI, state: PluginState): void 
 
     api.ui.registerNavigationItem({
       id: panel.navId,
+      label: panel.title,
+      icon: { lucide: panel.icon },
       visible: true,
       priority: panel.priority,
       badge,
@@ -120,9 +120,6 @@ export function updateBanner(
   }
 
   // Text banner for online, offline, and checking states
-  const dashboard = stateRecord.dashboard as Record<string, unknown> | null;
-  const gaia = dashboard?.gaia as Record<string, unknown> | null | undefined;
-  const gaiaMode = gaia?.mode as string || gaia?.tick_mode as string || '';
   const status = stateRecord.status as string || 'offline';
 
   if (status === 'offline') {

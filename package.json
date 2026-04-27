@@ -1,15 +1,16 @@
 {
   "name": "kai-plugin-legion",
   "version": "1.0.0",
+  "author": "John Hollow <https://github.com/iamhollow>",
   "private": true,
   "type": "module",
-  "description": "Legion daemon integration plugin for Kai desktop",
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc --watch"
+    "build": "node esbuild.config.mjs",
+    "dev": "node esbuild.config.mjs --dev --watch"
   },
   "devDependencies": {
-    "typescript": "^5.8.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0"
   }

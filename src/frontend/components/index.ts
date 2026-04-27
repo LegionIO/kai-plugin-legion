@@ -10,5 +10,3 @@ export { EmptyState } from './EmptyState.js';
 export { KeyValueGrid } from './KeyValueGrid.js';
 export { SegmentTabs } from './SegmentTabs.js';
 export { NotificationRow } from './NotificationRow.js';
-export { DaemonDataSection } from './DaemonDataSection.js';
-export { LegionStatusBanner } from './LegionStatusBanner.js';

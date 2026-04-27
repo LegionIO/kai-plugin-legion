@@ -1,0 +1,106 @@
+import esbuild from 'esbuild';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
+import { createRequire } from 'module';
+import { copyFileSync, mkdirSync, readFileSync } from 'fs';
+import { homedir } from 'os';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+const isWatch = process.argv.includes('--watch');
+const isDev = process.argv.includes('--dev');
+
+// Read plugin name from plugin.json
+const manifest = JSON.parse(readFileSync(resolve(__dirname, 'plugin.json'), 'utf-8'));
+const pluginName = manifest.name;
+
+// Determine output directory
+const outputDir = isDev
+  ? resolve(homedir(), '.kai', 'plugins', pluginName)
+  : resolve(__dirname, 'dist');
+
+// Built-in Node.js modules that should not be resolved
+const builtins = new Set([
+  'fs', 'path', 'child_process', 'crypto', 'events', 'stream', 'util',
+  'http', 'https', 'net', 'os', 'url', 'zlib', 'buffer', 'process',
+  'assert', 'constants', 'dns', 'domain', 'dgram', 'querystring',
+  'readline', 'repl', 'string_decoder', 'sys', 'timers', 'tls', 'tty', 'vm',
+]);
+
+// Plugin to resolve modules from local node_modules, bypassing Yarn PnP
+const localNodeModulesPlugin = {
+  name: 'local-node-modules',
+  setup(build) {
+    build.onResolve({ filter: /^[^./]/ }, args => {
+      const packageName = args.path.startsWith('@')
+        ? args.path.split('/').slice(0, 2).join('/')
+        : args.path.split('/')[0];
+
+      // Skip built-in modules (including node: prefixed)
+      if (builtins.has(packageName) || args.path.startsWith('node:')) return null;
+
+      try {
+        // Use require.resolve with explicit paths to bypass Yarn PnP
+        const resolved = require.resolve(args.path, {
+          paths: [resolve(__dirname, 'node_modules', '..')]
+        });
+        return { path: resolved };
+      } catch {
+        return null;
+      }
+    });
+  },
+};
+
+const backendOptions = {
+  entryPoints: ['./src/backend/index.ts'],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(outputDir, 'backend.js'),
+  external: [],
+  sourcemap: true,
+  target: 'node18',
+  plugins: [localNodeModulesPlugin],
+};
+
+const frontendOptions = {
+  entryPoints: ['./src/frontend/index.ts'],
+  bundle: true,
+  platform: 'browser',
+  format: 'esm',
+  outfile: resolve(outputDir, 'frontend.js'),
+  sourcemap: true,
+  target: 'es2020',
+  jsx: 'transform',
+  jsxFactory: 'React.createElement',
+  jsxFragment: 'React.Fragment',
+  plugins: [localNodeModulesPlugin],
+};
+
+// Ensure output directory exists
+mkdirSync(outputDir, { recursive: true });
+
+// Copy plugin.json to output directory
+copyFileSync(
+  resolve(__dirname, 'plugin.json'),
+  resolve(outputDir, 'plugin.json')
+);
+
+if (isWatch) {
+  const backendCtx = await esbuild.context(backendOptions);
+  const frontendCtx = await esbuild.context(frontendOptions);
+  await Promise.all([backendCtx.watch(), frontendCtx.watch()]);
+  console.log(`Watching for changes... (output: ${outputDir})`);
+} else {
+  await Promise.all([
+    esbuild.build(backendOptions),
+    esbuild.build(frontendOptions)
+  ]).catch(() => process.exit(1));
+
+  if (isDev) {
+    console.log(`Built to ~/.kai/plugins/${pluginName}/`);
+  } else {
+    console.log('Built backend.js and frontend.js to dist/');
+  }
+}

@@ -1,6 +1,5 @@
 /**
- * Constants for the Legion plugin main process.
- * Ported from legion-plugin/main.mjs v0.2.0.
+ * Constants for the Legion plugin.
  */
 
 import type { PanelDefinition, PluginConfig, TriggerRule } from './types.js';
@@ -9,12 +8,8 @@ import type { PanelDefinition, PluginConfig, TriggerRule } from './types.js';
 // Component & identifier constants
 // ---------------------------------------------------------------------------
 
-export const SETTINGS_COMPONENT = 'LegionSettings';
-export const PANEL_COMPONENT = 'LegionWorkspace';
-export const BANNER_COMPONENT = 'LegionStatusBanner';
 export const BACKEND_KEY = 'legion';
 export const BANNER_ID = 'legion-status';
-export const THREAD_STATUS_ID = 'legion-runtime-status';
 export const PROACTIVE_THREAD_ID = '__legion_proactive__';
 
 // ---------------------------------------------------------------------------
@@ -56,7 +51,7 @@ export const PANEL_DEFINITIONS: PanelDefinition[] = [
     id: 'dashboard',
     navId: 'legion-dashboard',
     title: 'Mission Control',
-    icon: 'gauge',
+    icon: 'brain-circuit',
     priority: 20,
     width: 'full',
     view: 'dashboard',

@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 
 import { cleanText, clampNumber } from './utils.js';
-import type { PluginAPI, PluginConfig } from './types.js';
+import type { PluginAPI, PluginConfig } from '../shared/types.js';
 import {
   DEFAULTS,
   STATUS_POLL_MIN_MS,
@@ -18,7 +18,7 @@ import {
   MAX_NOTIFICATIONS,
   EVENT_RECONNECT_MIN_MS,
   EVENT_RECONNECT_MAX_MS,
-} from './constants.js';
+} from '../shared/constants.js';
 
 /**
  * Reads plugin data from the API and normalizes every field against DEFAULTS.

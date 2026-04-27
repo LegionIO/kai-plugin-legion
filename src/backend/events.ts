@@ -7,7 +7,7 @@
  * and the host notification system.
  */
 
-import type { PluginAPI, Notification, ProactiveMessage } from './types.js';
+import type { PluginAPI, Notification, ProactiveMessage } from '../shared/types.js';
 import { getPluginConfig } from './config.js';
 import { getCurrentState, replaceState, updateState, mergeNotifications } from './state.js';
 import { fetchWithTimeout, buildDaemonHeaders } from './daemon-client.js';
@@ -22,7 +22,7 @@ import {
   EVENT_RECONNECT_MIN_MS,
   EVENT_RECONNECT_MAX_MS,
   DEFAULTS,
-} from './constants.js';
+} from '../shared/constants.js';
 
 /* -------------------------------------------------------------------------- */
 /*  Module-scoped state                                                       */

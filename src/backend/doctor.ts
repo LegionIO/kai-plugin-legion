@@ -1,4 +1,4 @@
-import type { PluginAPI, DaemonResult } from './types.js';
+import type { PluginAPI, DaemonResult } from '../shared/types.js';
 import { getPluginConfig } from './config.js';
 import { daemonJson } from './daemon-client.js';
 import { replaceState } from './state.js';

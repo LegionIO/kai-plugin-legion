@@ -1,11 +1,11 @@
-import type { PluginAPI } from './types.js';
-import type { PluginConfig, PluginState, Notification, Workflow, ProactiveMessage } from './types.js';
+import type { PluginAPI } from '../shared/types.js';
+import type { PluginConfig, PluginState, Notification, Workflow, ProactiveMessage } from '../shared/types.js';
 import {
   BACKEND_KEY,
   MAX_NOTIFICATIONS,
   MAX_WORKFLOWS,
   MAX_PROACTIVE_MESSAGES,
-} from './constants.js';
+} from '../shared/constants.js';
 import { cleanText } from './utils.js';
 
 // ---------------------------------------------------------------------------

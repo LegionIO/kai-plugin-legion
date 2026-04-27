@@ -1,6 +1,6 @@
-import type { PluginAPI } from './types.js';
-import type { PluginConfig } from './types.js';
-import { USER_AGENT, CIRCUIT_BREAKER_RECHECK_MS } from './constants.js';
+import type { PluginAPI } from '../shared/types.js';
+import type { PluginConfig } from '../shared/types.js';
+import { USER_AGENT, CIRCUIT_BREAKER_RECHECK_MS } from '../shared/constants.js';
 import { cleanText, clampNumber, joinUrl } from './utils.js';
 
 // ---------------------------------------------------------------------------
