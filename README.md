@@ -1,6 +1,6 @@
 # kai-plugin-legion
 
-Legion daemon integration plugin for [Kai desktop](https://github.com/LegionIO/kai-desktop). Provides daemon health monitoring, event streaming, proactive GAIA threads, workflow routing, knowledge panels, marketplace tooling, GitHub views, sub-agent management, and **daemon-powered LLM inference**.
+Legion daemon integration plugin for [Kai desktop](https://github.com/LegionIO/kai-desktop). Provides daemon health monitoring, event streaming, workflow routing, knowledge panels, marketplace tooling, GitHub views, sub-agent management, and **daemon-powered LLM inference**.
 
 ## Inference Routing
 
@@ -62,7 +62,7 @@ kai-plugin-legion/
 │   │   ├── actions.ts       # Action handler dispatcher
 │   │   ├── actions-daemon.ts # 65+ daemon CRUD action handlers
 │   │   ├── workflows.ts     # Trigger dispatch + triage routing
-│   │   ├── conversations.ts # Managed conversations + proactive GAIA thread
+│   │   ├── conversations.ts # Managed conversations
 │   │   ├── knowledge.ts     # Apollo query, ingest, monitors
 │   │   ├── config.ts        # Config resolution and auth source detection
 │   │   ├── state.ts         # Plugin state management + navigation updates
@@ -96,7 +96,7 @@ The plugin uses **esbuild** with two bundled entry points:
 
 ## Configuration
 
-After loading, open **Settings > Legion** in Kai desktop. The plugin exposes 28 config fields across multiple tabs. At minimum you need:
+After loading, open **Settings > Legion** in Kai desktop. The plugin exposes 25 config fields across multiple tabs. At minimum you need:
 
 - **Daemon URL** — e.g. `http://127.0.0.1:4567`
 - **Config Dir** — path containing `crypt.json` for JWT auth (auto-detected from `~/.kai/settings`, `~/.legion/settings`, or `~/.config/legion/settings`)
@@ -137,7 +137,7 @@ The plugin registers 8 tools that Claude can call during conversations:
 | `messages:hook` | Pre/post message processing |
 | `network:fetch` | HTTP requests to daemon |
 | `notifications:send` | Toast and native OS notifications |
-| `conversations:read/write` | Manage Legion/GAIA threads |
+| `conversations:read/write` | Manage Legion threads |
 | `navigation:open` | Open panels and conversations programmatically |
 | `state:publish` | Publish plugin state to renderer |
 | `agent:inference-provider` | Route LLM inference through daemon backend |
