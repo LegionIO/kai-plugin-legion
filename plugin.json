@@ -82,10 +82,6 @@
         "type": "boolean",
         "default": true
       },
-      "openProactiveThread": {
-        "type": "boolean",
-        "default": false
-      },
       "healthPollMs": {
         "type": "number",
         "default": 60000
@@ -102,17 +98,9 @@
         "type": "string",
         "default": "Legion Workspace"
       },
-      "proactiveThreadTitle": {
-        "type": "string",
-        "default": "GAIA Activity"
-      },
       "bootstrapPrompt": {
         "type": "string",
         "default": "Legion workspace ready. Use this thread for background coordination, backend-specific workflows, or plugin-triggered tasks."
-      },
-      "proactivePromptPrefix": {
-        "type": "string",
-        "default": "Proactive daemon activity"
       },
       "knowledgeRagEnabled": {
         "type": "boolean",

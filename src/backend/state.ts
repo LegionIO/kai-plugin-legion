@@ -1,10 +1,9 @@
 import type { PluginAPI } from '../shared/types.js';
-import type { PluginConfig, PluginState, Notification, Workflow, ProactiveMessage } from '../shared/types.js';
+import type { PluginConfig, PluginState, Notification, Workflow } from '../shared/types.js';
 import {
   BACKEND_KEY,
   MAX_NOTIFICATIONS,
   MAX_WORKFLOWS,
-  MAX_PROACTIVE_MESSAGES,
 } from '../shared/constants.js';
 import { cleanText } from './utils.js';
 
@@ -72,7 +71,6 @@ export function replaceState(
   }));
   next.workflows = normalizeWorkflows(next.workflows);
   next.workflowCounts = summarizeWorkflows(next.workflows as Workflow[]);
-  next.proactiveMessages = normalizeProactiveMessages(next.proactiveMessages);
   next.managedConversationIds = [
     ...new Set(
       Array.isArray(next.managedConversationIds)
@@ -206,39 +204,6 @@ export function normalizeWorkflows(value: unknown): Workflow[] {
   return next.sort((left, right) =>
     String(right.updatedAt).localeCompare(String(left.updatedAt)),
   );
-}
-
-export function normalizeProactiveMessages(value: unknown): ProactiveMessage[] {
-  const items = Array.isArray(value) ? value : [];
-  const seen = new Set<string>();
-  const next: ProactiveMessage[] = [];
-
-  for (const entry of items) {
-    if (!entry || typeof entry !== 'object') continue;
-    const raw = entry as Record<string, unknown>;
-    const id =
-      typeof raw.id === 'string' && raw.id
-        ? raw.id
-        : `${raw.timestamp || Date.now()}-${raw.intent || 'proactive'}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-
-    next.push({
-      id,
-      intent: cleanText(raw.intent as string | undefined) || 'insight',
-      content: typeof raw.content === 'string' ? raw.content : '',
-      source: cleanText(raw.source as string | undefined) || 'daemon',
-      timestamp:
-        cleanText(raw.timestamp as string | undefined) || new Date().toISOString(),
-      metadata:
-        raw.metadata && typeof raw.metadata === 'object'
-          ? (raw.metadata as Record<string, unknown>)
-          : {},
-    });
-    if (next.length >= MAX_PROACTIVE_MESSAGES) break;
-  }
-
-  return next;
 }
 
 // ---------------------------------------------------------------------------

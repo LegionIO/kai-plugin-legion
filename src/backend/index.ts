@@ -30,7 +30,6 @@ import { setInferenceApi } from './daemon-inference.js';
 import { ensureEventStream, stopEventStream } from './events.js';
 import {
   hydrateManagedConversations,
-  ensureProactiveConversation,
   createManagedConversation,
   managedConversationIds,
 } from './conversations.js';
@@ -67,7 +66,6 @@ export async function activate(api: PluginAPI): Promise<void> {
   registerActionHandlers(api);
   hydrateManagedConversations(api);
   hydrateWorkflowStore(api);
-  await ensureProactiveConversation(api);
 
   await syncRuntime(api, { reason: 'activate', notify: false, recordHistory: false });
   await loadRecentEvents(api, { initial: true, count: getPluginConfig(api).eventsRecentCount });

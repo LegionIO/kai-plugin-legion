@@ -7,17 +7,15 @@
  * and the host notification system.
  */
 
-import type { PluginAPI, Notification, ProactiveMessage } from '../shared/types.js';
+import type { PluginAPI, Notification } from '../shared/types.js';
 import { getPluginConfig } from './config.js';
 import { getCurrentState, replaceState, updateState, mergeNotifications } from './state.js';
 import { fetchWithTimeout, buildDaemonHeaders } from './daemon-client.js';
-import { classifyDaemonEvent, buildProactiveMessage, toNotificationLevel } from './events-classify.js';
-import { appendProactiveMessage } from './conversations.js';
+import { classifyDaemonEvent, toNotificationLevel } from './events-classify.js';
 import { maybeHandleTriggerEvent } from './workflows.js';
 import { clampNumber, joinUrl } from './utils.js';
 import {
   TOAST_TYPES,
-  PROACTIVE_THREAD_ID,
   DEFAULT_TIMEOUT_MS,
   EVENT_RECONNECT_MIN_MS,
   EVENT_RECONNECT_MAX_MS,
@@ -298,10 +296,9 @@ export function normalizeDaemonSsePayload(
  *
  * 1. Classify into a `Notification`.
  * 2. Merge into state (notifications list, event-stream bookkeeping).
- * 3. If the event is proactive, append it to the proactive conversation.
- * 4. Route through the trigger/workflow engine.
- * 5. Fire a host notification toast when appropriate.
- * 6. Emit a `daemon-event` state event for renderer listeners.
+ * 3. Route through the trigger/workflow engine.
+ * 4. Fire a host notification toast when appropriate.
+ * 5. Emit a `daemon-event` state event for renderer listeners.
  */
 export async function onDaemonEvent(
   api: PluginAPI,
@@ -323,14 +320,6 @@ export async function onDaemonEvent(
     },
   );
 
-  const proactiveMessage: ProactiveMessage | null = buildProactiveMessage(
-    rawEvent,
-    notification,
-  );
-  if (proactiveMessage) {
-    await appendProactiveMessage(api, proactiveMessage);
-  }
-
   await maybeHandleTriggerEvent(api, rawEvent);
 
   const config = getPluginConfig(api);
@@ -345,9 +334,7 @@ export async function onDaemonEvent(
       level: toNotificationLevel(notification.severity),
       native: config.nativeNotifications,
       autoDismissMs: 6_000,
-      target: proactiveMessage
-        ? { type: 'conversation', conversationId: PROACTIVE_THREAD_ID }
-        : { type: 'panel', panelId: 'notifications' },
+      target: { type: 'panel', panelId: 'notifications' },
     });
   }
 

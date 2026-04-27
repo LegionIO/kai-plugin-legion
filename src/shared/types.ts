@@ -19,14 +19,11 @@ export type PluginConfig = {
   notificationsEnabled: boolean;
   nativeNotifications: boolean;
   autoConnectEvents: boolean;
-  openProactiveThread: boolean;
   healthPollMs: number;
   eventsRecentCount: number;
   sseReconnectMs: number;
   workspaceThreadTitle: string;
-  proactiveThreadTitle: string;
   bootstrapPrompt: string;
-  proactivePromptPrefix: string;
   knowledgeRagEnabled: boolean;
   knowledgeCaptureEnabled: boolean;
   knowledgeScope: string;
@@ -70,15 +67,6 @@ export type Workflow = {
   payload: unknown;
   summary?: string;
   error?: string;
-};
-
-export type ProactiveMessage = {
-  id: string;
-  intent: string;
-  content: string;
-  source: string;
-  timestamp: string;
-  metadata: Record<string, unknown>;
 };
 
 export type PanelDefinition = {

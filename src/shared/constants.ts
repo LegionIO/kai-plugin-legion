@@ -10,7 +10,6 @@ import type { PanelDefinition, PluginConfig, TriggerRule } from './types.js';
 
 export const BACKEND_KEY = 'legion';
 export const BANNER_ID = 'legion-status';
-export const PROACTIVE_THREAD_ID = '__legion_proactive__';
 
 // ---------------------------------------------------------------------------
 // Timing constants
@@ -28,7 +27,6 @@ export const EVENT_RECONNECT_MAX_MS = 60_000;
 
 export const MAX_NOTIFICATIONS = 200;
 export const MAX_WORKFLOWS = 100;
-export const MAX_PROACTIVE_MESSAGES = 50;
 
 // ---------------------------------------------------------------------------
 // Circuit breaker recheck interval (ms)

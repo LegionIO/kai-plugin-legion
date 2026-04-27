@@ -1,11 +1,10 @@
 /**
- * Event classification and proactive message detection.
+ * Event classification.
  *
- * Extracts structured Notification objects from raw daemon SSE payloads and
- * detects proactive.* events that should be surfaced in the proactive thread.
+ * Extracts structured Notification objects from raw daemon SSE payloads.
  */
 
-import type { Notification, ProactiveMessage } from '../shared/types.js';
+import type { Notification } from '../shared/types.js';
 import { SEVERITY_MAP } from '../shared/constants.js';
 import { cleanText } from './utils.js';
 
@@ -78,56 +77,6 @@ export function classifyDaemonEvent(raw: unknown): Notification {
       new Date().toISOString(),
     read: false,
     raw,
-  };
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Proactive message detection                                               */
-/* -------------------------------------------------------------------------- */
-
-/**
- * If the raw event is a `proactive.*` or `gaia.proactive` event, build a
- * `ProactiveMessage` payload suitable for the proactive conversation thread.
- * Returns `null` for all other event types.
- */
-export function buildProactiveMessage(
-  rawEvent: unknown,
-  notification: Notification,
-): ProactiveMessage | null {
-  const event: Record<string, unknown> =
-    rawEvent && typeof rawEvent === 'object'
-      ? (rawEvent as Record<string, unknown>)
-      : {};
-
-  const eventType =
-    cleanText(event.type as string | undefined) ||
-    cleanText(event.event as string | undefined) ||
-    cleanText(event.kind as string | undefined) ||
-    cleanText(event.__eventName as string | undefined);
-
-  if (!eventType.startsWith('proactive.') && eventType !== 'gaia.proactive') {
-    return null;
-  }
-
-  const content =
-    cleanText(event.content as string | undefined) ||
-    cleanText(event.message as string | undefined) ||
-    cleanText(event.text as string | undefined) ||
-    notification.message ||
-    notification.title;
-
-  if (!content) return null;
-
-  return {
-    id: notification.id,
-    intent: cleanText(event.intent as string | undefined) || eventType || 'insight',
-    content,
-    source: cleanText(event.source as string | undefined) || 'gaia',
-    metadata:
-      event.metadata && typeof event.metadata === 'object'
-        ? (event.metadata as Record<string, unknown>)
-        : {},
-    timestamp: notification.timestamp,
   };
 }
 

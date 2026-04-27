@@ -13,7 +13,7 @@ import {
   knowledgeMonitorScan,
 } from './knowledge.js';
 import { runDoctorChecks } from './doctor.js';
-import { createManagedConversation, openProactiveConversation } from './conversations.js';
+import { createManagedConversation } from './conversations.js';
 import { refreshWorkflowTasks } from './workflows.js';
 import {
   PANEL_DEFINITIONS,
@@ -72,9 +72,6 @@ export function registerActionHandlers(api: PluginAPI): void {
           open: data?.open !== false,
           kind: cleanText(data?.kind as string) || 'workspace',
         });
-
-      case 'open-proactive-thread':
-        return openProactiveConversation(api);
 
       // -------------------------------------------------------------- //
       // Events / notifications                                          //

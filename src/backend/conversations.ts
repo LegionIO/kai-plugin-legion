@@ -1,7 +1,7 @@
-import type { PluginAPI, ProactiveMessage } from '../shared/types.js';
+import type { PluginAPI } from '../shared/types.js';
 import { getPluginConfig } from './config.js';
-import { getCurrentState, replaceState, updateState } from './state.js';
-import { PROACTIVE_THREAD_ID, BACKEND_KEY } from '../shared/constants.js';
+import { getCurrentState, replaceState } from './state.js';
+import { BACKEND_KEY } from '../shared/constants.js';
 import { cleanText } from './utils.js';
 import { randomUUID } from 'node:crypto';
 
@@ -31,15 +31,11 @@ export async function createManagedConversation(
 ): Promise<Record<string, unknown>> {
   const config = getPluginConfig(api);
   const kind = cleanText(options.kind) || 'workspace';
-  const conversationId = kind === 'proactive' ? PROACTIVE_THREAD_ID : randomUUID();
+  const conversationId = randomUUID();
   const now = new Date().toISOString();
-  const title = cleanText(options.title)
-    || (kind === 'proactive' ? config.proactiveThreadTitle : config.workspaceThreadTitle);
-  const initialPrompt = cleanText(options.prompt)
-    || (kind === 'proactive' ? `${config.proactivePromptPrefix}.` : config.bootstrapPrompt);
-  const selectedBackendKey = kind === 'proactive'
-    ? null
-    : (config.backendEnabled ? BACKEND_KEY : null);
+  const title = cleanText(options.title) || config.workspaceThreadTitle;
+  const initialPrompt = cleanText(options.prompt) || config.bootstrapPrompt;
+  const selectedBackendKey = config.backendEnabled ? BACKEND_KEY : null;
 
   const existing = api.conversations.get(conversationId);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -101,9 +97,6 @@ export async function createManagedConversation(
     managedConversationIds: [...managedConversationIds],
     lastConversationId: conversationId,
     lastConversationTitle: title,
-    proactiveConversationId: kind === 'proactive'
-      ? conversationId
-      : (getCurrentState(api).proactiveConversationId ?? null),
   }, {
     reason: 'conversation-created',
     recordHistory: true,
@@ -116,7 +109,7 @@ export async function createManagedConversation(
     kind,
   });
 
-  if (config.notificationsEnabled && kind !== 'proactive') {
+  if (config.notificationsEnabled) {
     api.notifications.show({
       id: `conversation-${conversationId}`,
       title: 'Legion thread created',
@@ -137,90 +130,3 @@ export async function createManagedConversation(
   };
 }
 
-/* ── Proactive conversation management ── */
-
-export async function ensureProactiveConversation(api: PluginAPI): Promise<string> {
-  const existing = api.conversations.get(PROACTIVE_THREAD_ID);
-  if (existing) {
-    managedConversationIds.add(existing.id);
-    replaceState(api, {
-      proactiveConversationId: existing.id,
-      managedConversationIds: [...managedConversationIds],
-    });
-    return existing.id;
-  }
-
-  const created = await createManagedConversation(api, {
-    kind: 'proactive',
-    open: false,
-  });
-  return created.conversationId as string;
-}
-
-export async function openProactiveConversation(
-  api: PluginAPI,
-): Promise<Record<string, unknown>> {
-  const conversationId = await ensureProactiveConversation(api);
-  api.conversations.setActive(conversationId);
-  return { ok: true, conversationId };
-}
-
-/* ── Append proactive message ── */
-
-export async function appendProactiveMessage(
-  api: PluginAPI,
-  proactiveMessage: ProactiveMessage,
-): Promise<Record<string, unknown>> {
-  const conversationId = await ensureProactiveConversation(api);
-  const conversation = api.conversations.get(conversationId);
-  const messageTree = Array.isArray((conversation as Record<string, unknown> | null)?.messageTree)
-    ? (conversation as Record<string, unknown>).messageTree as Array<Record<string, unknown>>
-    : [];
-
-  if (
-    messageTree.some(
-      (entry) =>
-        (entry?.metadata as Record<string, unknown> | undefined)?.eventId === proactiveMessage.id,
-    )
-  ) {
-    return { ok: true, duplicate: true, conversationId };
-  }
-
-  api.conversations.appendMessage(conversationId, {
-    role: 'assistant',
-    content: [{ type: 'text', text: proactiveMessage.content }],
-    metadata: {
-      pluginName: 'legion',
-      legionKind: 'proactive',
-      eventId: proactiveMessage.id,
-      intent: proactiveMessage.intent,
-      source: proactiveMessage.source,
-      ...proactiveMessage.metadata,
-    },
-    createdAt: proactiveMessage.timestamp,
-  });
-  api.conversations.markUnread(conversationId, true);
-
-  const state = updateState(
-    api,
-    (previous) => ({
-      ...previous,
-      proactiveConversationId: conversationId,
-      proactiveMessages: [
-        proactiveMessage,
-        ...(Array.isArray(previous.proactiveMessages) ? previous.proactiveMessages : []),
-      ],
-    }),
-    {
-      reason: 'proactive-message',
-      recordHistory: false,
-    },
-  );
-
-  const config = getPluginConfig(api);
-  if (config.openProactiveThread) {
-    api.navigation.open({ type: 'conversation', conversationId });
-  }
-
-  return { ok: true, conversationId, state };
-}
