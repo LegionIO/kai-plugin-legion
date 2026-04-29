@@ -52,6 +52,44 @@ const localNodeModulesPlugin = {
   },
 };
 
+// Plugin to replace react/react-dom imports with globalThis.React references.
+// Kai provides React at runtime via the register() env. If we bundle react from
+// node_modules we get two React instances and hooks (useState etc.) break.
+const reactGlobalPlugin = {
+  name: 'react-global',
+  setup(build) {
+    // Intercept bare 'react' and 'react/jsx-runtime' imports
+    build.onResolve({ filter: /^react(-dom)?(\/.*)?$/ }, args => ({
+      path: args.path,
+      namespace: 'react-global',
+    }));
+    // Return a module that re-exports from the global React
+    build.onLoad({ filter: /.*/, namespace: 'react-global' }, args => {
+      if (args.path === 'react/jsx-runtime' || args.path === 'react/jsx-dev-runtime') {
+        return {
+          contents: `
+            const React = globalThis.React;
+            export const jsx = React.createElement;
+            export const jsxs = React.createElement;
+            export const jsxDEV = React.createElement;
+            export const Fragment = React.Fragment;
+          `,
+          loader: 'js',
+        };
+      }
+      // Default: re-export the global React
+      return {
+        contents: `
+          const React = globalThis.React;
+          export default React;
+          export const { useState, useEffect, useRef, useCallback, useMemo, useContext, useReducer, createContext, createElement, Fragment, forwardRef, memo, lazy, Suspense, Children, isValidElement, cloneElement } = React;
+        `,
+        loader: 'js',
+      };
+    });
+  },
+};
+
 const backendOptions = {
   entryPoints: ['./src/backend/index.ts'],
   bundle: true,
@@ -75,7 +113,7 @@ const frontendOptions = {
   jsx: 'transform',
   jsxFactory: 'React.createElement',
   jsxFragment: 'React.Fragment',
-  plugins: [localNodeModulesPlugin],
+  plugins: [reactGlobalPlugin, localNodeModulesPlugin],
 };
 
 // Ensure output directory exists
