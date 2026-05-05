@@ -30,6 +30,18 @@ export type InferenceStreamEvent = {
   durationMs?: number;
 };
 
+/**
+ * Minimum structural shape of a tool definition forwarded by the host.
+ * Kept loose because the plugin only forwards tools to the daemon — it
+ * does not introspect or execute them. Mirrors the host's `ToolDefinition`
+ * without taking a hard type dependency on Kai internals.
+ */
+export type InferenceTool = {
+  name: string;
+  description?: string;
+  inputSchema?: unknown;
+};
+
 export type InferenceStreamOptions = {
   conversationId: string;
   messages: Array<{ role: string; content: unknown }>;
@@ -37,6 +49,13 @@ export type InferenceStreamOptions = {
   systemPrompt: string;
   reasoningEffort?: string;
   abortSignal?: AbortSignal;
+  /**
+   * Tools provided by the host (Kai). Forwarded to the daemon's
+   * /api/llm/inference endpoint so the LLM can be presented with a tool
+   * schema. Optional — when absent or empty, the daemon receives no
+   * `tools` field and the LLM runs without tool calling.
+   */
+  tools?: InferenceTool[];
 };
 
 // ── Module state ────────────────────────────────────────────────────────
@@ -95,6 +114,14 @@ export async function* streamDaemonInference(
     stream: true,
     ...(options.conversationId ? { conversation_id: options.conversationId } : {}),
     ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
+    // Forward host-provided tool definitions to the daemon. The endpoint at
+    // legion-llm/lib/legion/llm/api/native/inference.rb:22 reads `body[:tools]`
+    // and passes them through to the pipeline at line 95 (`tools: tool_declarations`).
+    // The daemon expects `{ name, description, parameters | input_schema }` per
+    // tool — see `build_client_tool_class` at helpers.rb:296. Assistant
+    // messages with `tool_calls` and `role: 'tool'` messages with `tool_call_id`
+    // are accepted by the lex-llm adapter at lex_llm_adapter.rb:113-114.
+    ...(options.tools && options.tools.length > 0 ? { tools: options.tools } : {}),
   };
 
   // Forward knowledge config if available
@@ -147,9 +174,31 @@ export async function* streamDaemonInference(
 
 // ── Message normalisation ───────────────────────────────────────────────
 
+/**
+ * Daemon-compatible message shape.
+ *
+ * The Legion daemon (`legion-llm` gem, `lib/legion/llm/call/lex_llm_adapter.rb`)
+ * accepts OpenAI-style messages: `role`, `content` (string), plus optional
+ * `tool_calls` (assistant messages) and `tool_call_id` (tool messages). The
+ * adapter at line 110-115 of lex_llm_adapter.rb maps these directly onto
+ * lex-llm's `Message` class, which providers translate to native shapes.
+ *
+ * Content is sent as a string (not an array): the adapter does `content.to_s`,
+ * which would produce garbage if given a content-block array. See
+ * `routes_inference_spec.rb` for the canonical input shape.
+ */
+type NormalizedToolCall = {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: string };
+};
+
 type NormalizedMessage = {
   role: string;
-  content: Array<{ type: string; text: string }>;
+  content: string;
+  tool_calls?: NormalizedToolCall[];
+  tool_call_id?: string;
+  tool_name?: string;
 };
 
 function extractText(content: unknown): string {
@@ -172,16 +221,130 @@ function extractText(content: unknown): string {
     .trim();
 }
 
+/** Stringify a tool result for the daemon's `content` field. */
+function stringifyToolResult(result: unknown): string {
+  if (typeof result === 'string') return result;
+  if (result == null) return '';
+  if (typeof result === 'object') {
+    const typed = result as { isError?: boolean; error?: unknown };
+    if (typed.isError) {
+      const err = typed.error;
+      return typeof err === 'string' ? `Error: ${err}` : `Error: ${JSON.stringify(err)}`;
+    }
+    try { return JSON.stringify(result); } catch { return String(result); }
+  }
+  return String(result);
+}
+
+/**
+ * Translate Kai's AI SDK V4 CoreMessage shape into the daemon's OpenAI-style
+ * shape. Preserves multi-turn tool history end-to-end:
+ *
+ *   IN  (V4):  assistant content [{type:'text'}, {type:'tool-call', toolCallId, toolName, args}]
+ *              followed by tool role with content [{type:'tool-result', toolCallId, toolName, result}]
+ *   OUT (lex): {role:'assistant', content:'<text>', tool_calls:[{id,type:'function',function:{name,arguments:JSON}}]}
+ *              {role:'tool', tool_call_id, tool_name, content:'<stringified result>'}
+ *
+ * The daemon's lex_llm_adapter:101-117 reads `tool_calls` and `tool_call_id` as
+ * top-level fields and forwards them to the underlying provider for native
+ * tool-call translation. See also legion-llm/spec/routes_inference_spec.rb for
+ * the canonical message shape expected at /api/llm/inference.
+ */
 function normalizeMessages(messages: Array<{ role: string; content: unknown }>): NormalizedMessage[] {
-  return messages
-    .map((message) => {
-      const role = message.role === 'assistant' ? 'assistant' : message.role === 'user' ? 'user' : '';
-      if (!role) return null;
+  const out: NormalizedMessage[] = [];
+
+  for (const message of messages) {
+    const role = (message.role ?? '').toString();
+    if (!role) continue;
+
+    // System and user messages: extract text only. The daemon accepts these
+    // verbatim once stringified.
+    if (role === 'system' || role === 'user') {
       const text = extractText(message.content);
-      if (!text) return null;
-      return { role, content: [{ type: 'text', text }] };
-    })
-    .filter((message): message is NormalizedMessage => message !== null);
+      if (!text) continue;
+      out.push({ role, content: text });
+      continue;
+    }
+
+    // Tool messages: AI SDK V4 wraps results in a content array of
+    // {type:'tool-result'} blocks. Each result becomes its own top-level
+    // {role:'tool'} message in OpenAI/lex-llm format.
+    if (role === 'tool') {
+      if (!Array.isArray(message.content)) {
+        const text = extractText(message.content);
+        if (text) out.push({ role: 'tool', content: text });
+        continue;
+      }
+      for (const part of message.content as Array<Record<string, unknown>>) {
+        const partType = (part?.type ?? '').toString();
+        if (partType !== 'tool-result' && partType !== 'tool_result') continue;
+        const toolCallId = (part.toolCallId as string) ?? (part.tool_call_id as string) ?? '';
+        const toolName = (part.toolName as string) ?? (part.tool_name as string) ?? '';
+        out.push({
+          role: 'tool',
+          content: stringifyToolResult(part.result),
+          ...(toolCallId ? { tool_call_id: toolCallId } : {}),
+          ...(toolName ? { tool_name: toolName } : {}),
+        });
+      }
+      continue;
+    }
+
+    // Assistant messages: split content into a text body + tool_calls array.
+    // The daemon's adapter reads tool_calls as a top-level field.
+    if (role === 'assistant') {
+      if (!Array.isArray(message.content)) {
+        const text = extractText(message.content);
+        if (!text) continue;
+        out.push({ role: 'assistant', content: text });
+        continue;
+      }
+
+      const textParts: string[] = [];
+      const toolCalls: NormalizedToolCall[] = [];
+
+      for (const part of message.content as Array<Record<string, unknown>>) {
+        const partType = (part?.type ?? '').toString();
+        if (partType === 'text' && typeof part.text === 'string') {
+          textParts.push(part.text);
+          continue;
+        }
+        if (partType === 'tool-call' || partType === 'tool_call') {
+          const id = (part.toolCallId as string) ?? (part.tool_call_id as string) ?? '';
+          const name = (part.toolName as string) ?? (part.tool_name as string) ?? '';
+          if (!id || !name) continue;
+          let argString: string;
+          try {
+            argString = JSON.stringify(part.args ?? part.arguments ?? {});
+          } catch {
+            argString = '{}';
+          }
+          toolCalls.push({ id, type: 'function', function: { name, arguments: argString } });
+        }
+        // image/file/other parts on assistant messages are dropped — the
+        // daemon's content field is text-only.
+      }
+
+      const text = textParts.join('\n').trim();
+      if (!text && toolCalls.length === 0) continue;
+
+      const assistantMsg: NormalizedMessage = {
+        role: 'assistant',
+        // Daemon validator requires non-empty content. Use a single space as
+        // a placeholder when the assistant turn was tool-only.
+        content: text || ' ',
+        ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+      };
+      out.push(assistantMsg);
+      continue;
+    }
+
+    // Unknown role — pass through as text if extractable, otherwise drop.
+    const text = extractText(message.content);
+    if (text) out.push({ role, content: text });
+  }
+
+  return out;
 }
 
 // ── SSE parser (adapted from interlink's consumeDaemonSSE) ──────────────
