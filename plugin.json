@@ -4,7 +4,7 @@
   "version": "1.0.2",
   "description": "Legion integration for Kai — daemon health, event streaming, proactive threads, workflow routing, knowledge panels, marketplace tooling, GitHub views, sub-agent monitoring, and daemon-powered LLM inference.",
   "icon": {
-    "lucide": "brain-circuit"
+    "lucide": "cpu"
   },
   "author": "John Hollow <https://github.com/iamhollow>",
   "permissions": [
