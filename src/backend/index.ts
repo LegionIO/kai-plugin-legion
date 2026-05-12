@@ -241,6 +241,12 @@ export async function syncRuntime(
   lastHealthStatus = (nextState as Record<string, unknown>).status as string;
   updateBanner(api, config, nextState);
   ensureEventStream(api);
+
+  // Refresh tiers cache when daemon comes online
+  if (isOnline) {
+    void refreshTiersCache(api);
+  }
+
   return nextState;
 }
 
@@ -323,6 +329,21 @@ export async function refreshDashboardSnapshot(
   }
 
   return { ok, error, snapshot };
+}
+
+// -------------------------------------------------------------------------- //
+// Tiers cache                                                                 //
+// -------------------------------------------------------------------------- //
+
+/**
+ * Fetch /api/llm/tiers and store in plugin state for the routing UI.
+ */
+export async function refreshTiersCache(api: PluginAPI): Promise<DaemonResult> {
+  const result = await daemonJson(api, '/api/llm/tiers', { quiet: true });
+  if (result.ok && result.data) {
+    replaceState(api, { tiers: result.data }, { reason: 'tiers-refreshed', recordHistory: false });
+  }
+  return result;
 }
 
 // -------------------------------------------------------------------------- //

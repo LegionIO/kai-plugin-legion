@@ -216,7 +216,9 @@ export function registerActionHandlers(api: PluginAPI): void {
       // -------------------------------------------------------------- //
       // LLM routing                                                     //
       // -------------------------------------------------------------- //
-      case 'open-routing-modal':
+      case 'open-routing-modal': {
+        const { refreshTiersCache } = await import('./index.js');
+        void refreshTiersCache(api);
         api.ui.showModal({
           id: 'legion-routing-modal',
           component: 'RoutingModal',
@@ -226,6 +228,7 @@ export function registerActionHandlers(api: PluginAPI): void {
           props: {},
         });
         return { ok: true };
+      }
 
       case 'save-routing': {
         const tier = cleanText(data?.tier as string);
