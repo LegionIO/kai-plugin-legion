@@ -93,7 +93,7 @@ export async function* streamDaemonInference(
     return;
   }
 
-  const { getPluginConfig } = await import('./config.js');
+  const { getPluginConfig } = await import('./index.js');
   const config = getPluginConfig(cachedApi);
 
   if (!config.daemonUrl) {

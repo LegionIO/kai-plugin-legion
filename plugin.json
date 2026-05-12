@@ -1,8 +1,8 @@
 {
   "name": "legion",
-  "displayName": "Legion",
-  "version": "1.0.2",
-  "description": "Legion integration for Kai — daemon health, event streaming, proactive threads, workflow routing, knowledge panels, marketplace tooling, GitHub views, sub-agent monitoring, and daemon-powered LLM inference.",
+  "displayName": "LegionIO",
+  "version": "2.0.0",
+  "description": "LegionIO inference runtime for Kai. Routes all LLM calls through the LegionIO daemon when enabled and online.",
   "icon": {
     "lucide": "cpu"
   },
@@ -12,18 +12,12 @@
     "config:write",
     "tools:register",
     "ui:banner",
-    "ui:modal",
     "ui:settings",
-    "ui:panel",
-    "ui:navigation",
-    "messages:hook",
     "network:fetch",
-    "notifications:send",
-    "conversations:read",
-    "conversations:write",
-    "navigation:open",
     "state:publish",
-    "agent:inference-provider"
+    "agent:inference-provider",
+    "agent:register-runtime",
+    "agent:register-cli-tool"
   ],
   "configSchema": {
     "type": "object",
@@ -35,118 +29,6 @@
       "daemonUrl": {
         "type": "string",
         "default": "http://127.0.0.1:4567"
-      },
-      "configDir": {
-        "type": "string",
-        "default": ""
-      },
-      "apiKey": {
-        "type": "string",
-        "default": ""
-      },
-      "readyPath": {
-        "type": "string",
-        "default": "/api/ready"
-      },
-      "healthPath": {
-        "type": "string",
-        "default": "/api/health"
-      },
-      "streamPath": {
-        "type": "string",
-        "default": "/api/llm/inference"
-      },
-      "eventsPath": {
-        "type": "string",
-        "default": "/api/events"
-      },
-      "backendEnabled": {
-        "type": "boolean",
-        "default": true
-      },
-      "daemonStreaming": {
-        "type": "boolean",
-        "default": true
-      },
-      "notificationsEnabled": {
-        "type": "boolean",
-        "default": true
-      },
-      "nativeNotifications": {
-        "type": "boolean",
-        "default": true
-      },
-      "autoConnectEvents": {
-        "type": "boolean",
-        "default": true
-      },
-      "healthPollMs": {
-        "type": "number",
-        "default": 60000
-      },
-      "eventsRecentCount": {
-        "type": "number",
-        "default": 50
-      },
-      "sseReconnectMs": {
-        "type": "number",
-        "default": 5000
-      },
-      "workspaceThreadTitle": {
-        "type": "string",
-        "default": "Legion Workspace"
-      },
-      "bootstrapPrompt": {
-        "type": "string",
-        "default": "Legion workspace ready. Use this thread for background coordination, backend-specific workflows, or plugin-triggered tasks."
-      },
-      "knowledgeRagEnabled": {
-        "type": "boolean",
-        "default": true
-      },
-      "knowledgeCaptureEnabled": {
-        "type": "boolean",
-        "default": true
-      },
-      "knowledgeScope": {
-        "type": "string",
-        "default": "all"
-      },
-      "triggersEnabled": {
-        "type": "boolean",
-        "default": true
-      },
-      "autoTriage": {
-        "type": "boolean",
-        "default": true
-      },
-      "triageModel": {
-        "type": "string",
-        "default": ""
-      },
-      "maxConcurrentWorkflows": {
-        "type": "number",
-        "default": 3
-      },
-      "triggerRules": {
-        "type": "array",
-        "default": []
-      },
-      "defaultTier": {
-        "type": "string",
-        "default": ""
-      },
-      "defaultProvider": {
-        "type": "string",
-        "default": ""
-      },
-      "defaultModel": {
-        "type": "string",
-        "default": ""
-      },
-      "conversationRouting": {
-        "type": "object",
-        "default": {}
       }
     }
   }
