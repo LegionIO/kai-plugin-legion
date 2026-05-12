@@ -94,6 +94,7 @@ export function updateBanner(
 
   if (!config.enabled) {
     api.ui.hideBanner(BANNER_ID);
+    api.ui.hideBanner('legion-routing');
     return;
   }
 
@@ -105,6 +106,7 @@ export function updateBanner(
       dismissible: true,
       visible: true,
     });
+    api.ui.hideBanner('legion-routing');
     return;
   }
 
@@ -116,11 +118,12 @@ export function updateBanner(
       dismissible: true,
       visible: true,
     });
+    api.ui.hideBanner('legion-routing');
     return;
   }
 
   // Text banner for online, offline, and checking states
-  const status = stateRecord.status as string || 'offline';
+  const status = (stateRecord.status as string) || 'offline';
 
   if (status === 'offline') {
     api.ui.showBanner({
@@ -130,9 +133,19 @@ export function updateBanner(
       dismissible: true,
       visible: true,
     });
+    api.ui.hideBanner('legion-routing');
     return;
   }
 
-  // Online or checking — hide the banner
+  // Online or checking — hide the status banner and show the routing banner
   api.ui.hideBanner(BANNER_ID);
+
+  // Show routing banner when online
+  api.ui.showBanner({
+    id: 'legion-routing',
+    component: 'RoutingBanner',
+    visible: true,
+    dismissible: false,
+    props: {},
+  });
 }

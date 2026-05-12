@@ -214,6 +214,40 @@ export function registerActionHandlers(api: PluginAPI): void {
         );
 
       // -------------------------------------------------------------- //
+      // LLM routing                                                     //
+      // -------------------------------------------------------------- //
+      case 'open-routing-modal':
+        api.ui.showModal({
+          id: 'legion-routing-modal',
+          component: 'RoutingModal',
+          title: 'LLM Routing',
+          closeable: true,
+          visible: true,
+          props: {},
+        });
+        return { ok: true };
+
+      case 'save-routing': {
+        const tier = cleanText(data?.tier as string);
+        const provider = cleanText(data?.provider as string);
+        const model = cleanText(data?.model as string);
+        const pluginData = api.config.getPluginData() as Record<string, unknown>;
+
+        // Save as global defaults
+        api.config.setPluginData({
+          ...pluginData,
+          defaultTier: tier,
+          defaultProvider: provider,
+          defaultModel: model,
+        });
+        return { ok: true };
+      }
+
+      case 'close-routing-modal':
+        api.ui.hideModal('legion-routing-modal');
+        return { ok: true };
+
+      // -------------------------------------------------------------- //
       // Daemon CRUD (extensions, tasks, workers, schedules, etc.)       //
       // -------------------------------------------------------------- //
       default: {
@@ -226,10 +260,12 @@ export function registerActionHandlers(api: PluginAPI): void {
     }
   };
 
-  // Bind the dispatcher to the settings view, every panel, and the banner.
+  // Bind the dispatcher to the settings view, every panel, and the banners.
   api.onAction('settings:legion', handleAction);
   for (const panel of PANEL_DEFINITIONS) {
     api.onAction(`panel:${panel.id}`, handleAction);
   }
   api.onAction(BANNER_ID, handleAction);
+  api.onAction('banner:legion-routing', handleAction);
+  api.onAction('modal:legion-routing-modal', handleAction);
 }

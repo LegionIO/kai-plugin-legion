@@ -388,10 +388,34 @@ export async function handleDaemonCrudAction(
       return daemonJson(api, '/api/llm/providers');
 
     case 'llm-config':
-      return daemonJson(api, '/api/llm/config');
+      return daemonJson(api, '/api/settings/llm');
 
     case 'llm-config-update':
-      return daemonJson(api, '/api/llm/config', { method: 'PUT', body: data as Record<string, unknown> });
+      return daemonJson(api, '/api/settings/llm', { method: 'PUT', body: { value: data?.value ?? data } as Record<string, unknown> });
+
+    case 'llm-tiers':
+      return daemonJson(api, '/api/llm/tiers');
+
+    case 'llm-tiers-get':
+      return daemonJson(api, `/api/llm/tiers/${enc(data?.tier)}`);
+
+    case 'llm-offerings':
+      return daemonJson(api, '/api/llm/offerings');
+
+    case 'llm-instances':
+      return daemonJson(api, '/api/llm/instances');
+
+    case 'llm-routing':
+      return daemonJson(api, '/api/llm/routing');
+
+    case 'llm-provider-layer':
+      return daemonJson(api, '/api/llm/providers');
+
+    case 'llm-token-budget':
+      return daemonJson(api, '/api/metering/usage');
+
+    case 'llm-token-budget-reset':
+      return daemonJson(api, '/api/metering/reset', { method: 'POST' });
 
     // ------------------------------------------------------------------ //
     // Structural                                                          //

@@ -32,6 +32,10 @@ export type PluginConfig = {
   triageModel: string;
   maxConcurrentWorkflows: number;
   triggerRules: TriggerRule[];
+  defaultTier: string;
+  defaultProvider: string;
+  defaultModel: string;
+  conversationRouting: Record<string, ConversationRoutingPrefs>;
 };
 
 export type DaemonResult<T = unknown> = {
@@ -77,6 +81,12 @@ export type PanelDefinition = {
   priority: number;
   width: string;
   view: string;
+};
+
+export type ConversationRoutingPrefs = {
+  tier?: string;
+  provider?: string;
+  model?: string;
 };
 
 export type TriggerRule = {

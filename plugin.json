@@ -131,6 +131,22 @@
       "triggerRules": {
         "type": "array",
         "default": []
+      },
+      "defaultTier": {
+        "type": "string",
+        "default": ""
+      },
+      "defaultProvider": {
+        "type": "string",
+        "default": ""
+      },
+      "defaultModel": {
+        "type": "string",
+        "default": ""
+      },
+      "conversationRouting": {
+        "type": "object",
+        "default": {}
       }
     }
   }

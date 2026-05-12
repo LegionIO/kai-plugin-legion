@@ -166,7 +166,7 @@ export const SEVERITY_MAP: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Default config values (all 28 fields)
+// Default config values (all 32 fields)
 // ---------------------------------------------------------------------------
 
 export const DEFAULTS: Omit<PluginConfig, 'triggerRules'> & { triggerRules: TriggerRule[] } = {
@@ -197,4 +197,8 @@ export const DEFAULTS: Omit<PluginConfig, 'triggerRules'> & { triggerRules: Trig
   triageModel: '',
   maxConcurrentWorkflows: 3,
   triggerRules: [],
+  defaultTier: '',
+  defaultProvider: '',
+  defaultModel: '',
+  conversationRouting: {},
 };

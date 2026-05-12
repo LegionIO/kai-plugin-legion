@@ -37,6 +37,8 @@ export type InferenceStreamOptions = {
   systemPrompt: string;
   reasoningEffort?: string;
   abortSignal?: AbortSignal;
+  tier?: string;
+  provider?: string;
 };
 
 // ── Module state ────────────────────────────────────────────────────────
@@ -93,12 +95,33 @@ export async function* streamDaemonInference(
   const requestBody: Record<string, unknown> = {
     messages: normalizedMessages,
     stream: true,
+    ...(options.modelKey ? { model: options.modelKey } : {}),
+    ...(options.provider ? { provider: options.provider } : {}),
+    ...(options.tier ? { tier: options.tier } : {}),
+    ...(options.systemPrompt ? { system: options.systemPrompt } : {}),
     ...(options.conversationId ? { conversation_id: options.conversationId } : {}),
     ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
   };
 
-  // Forward knowledge config if available
+  // Look up per-conversation routing overrides
   const pluginData = cachedApi.config.getPluginData() as Record<string, unknown>;
+  const routingMap = (pluginData.conversationRouting || {}) as Record<string, Record<string, string>>;
+  const convRouting = routingMap[options.conversationId] || {};
+
+  // Per-conversation overrides take priority over what was passed in options
+  if (convRouting.tier && !requestBody.tier) requestBody.tier = convRouting.tier;
+  if (convRouting.provider && !requestBody.provider) requestBody.provider = convRouting.provider;
+  if (convRouting.model && !requestBody.model) requestBody.model = convRouting.model;
+
+  // Global defaults as final fallback
+  const defaultTier = (pluginData.defaultTier as string) || '';
+  const defaultProvider = (pluginData.defaultProvider as string) || '';
+  const defaultModel = (pluginData.defaultModel as string) || '';
+  if (defaultTier && !requestBody.tier) requestBody.tier = defaultTier;
+  if (defaultProvider && !requestBody.provider) requestBody.provider = defaultProvider;
+  if (defaultModel && !requestBody.model) requestBody.model = defaultModel;
+
+  // Forward knowledge config if available
   if (pluginData.knowledgeRagEnabled !== undefined) {
     requestBody.rag_enabled = pluginData.knowledgeRagEnabled;
   }
