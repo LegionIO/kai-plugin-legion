@@ -518,7 +518,17 @@ async function* consumeDaemonSSE(
             },
           });
         }
-        events.push({ conversationId, type: 'done', data: payload });
+        // Extract the model actually used by the daemon and stamp it into
+        // messageMeta.sourceModel so Kai's popover can display it.
+        const usedModel = cleanText(
+          (payload.model as string) ??
+          (payload.model_name as string) ??
+          (payload.modelName as string) ??
+          '',
+        );
+        const doneEvent: InferenceStreamEvent = { conversationId, type: 'done', data: payload };
+        if (usedModel) (doneEvent as Record<string, unknown>).messageMeta = { sourceModel: usedModel };
+        events.push(doneEvent);
         return events;
       }
 
