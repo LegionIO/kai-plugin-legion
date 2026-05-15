@@ -53,17 +53,31 @@ type DaemonModel = {
   enabled?: boolean;
 };
 
-const NON_CHAT_SIGNALS = [
+// Exact-match signals that indicate a model is NOT a chat/text model.
+// We only check the model ID and capabilities as whole tokens (exact or word-boundary),
+// not substrings — "embeddings" in qwen's capability list should not exclude it.
+const NON_CHAT_EXACT = new Set([
   'embed', 'embedding', 'embeddings',
-  'speech-to-text', 'text-to-speech', 'speech', 'tts', 'stt',
-  'realtime', 'image', 'video', 'transcription', 'transcribe',
+  'speech-to-text', 'text-to-speech', 'tts', 'stt',
+  'realtime', 'transcription', 'transcribe',
+]);
+
+// Substrings checked only against the model ID (not capabilities).
+const NON_CHAT_ID_SIGNALS = [
+  'embed', 'speech', 'realtime', 'image', 'video', 'transcri', 'tts', 'stt',
 ];
 
 function isDaemonChatModel(m: DaemonModel): boolean {
   if (!m.id || m.enabled === false) return false;
   if (!m.types?.includes('inference')) return false;
-  const signals = [m.id, ...(m.capabilities ?? [])].map((s) => s.toLowerCase());
-  return !signals.some((s) => NON_CHAT_SIGNALS.some((bad) => s.includes(bad)));
+  // Exclude if the model ID contains a non-chat signal
+  const idLower = m.id.toLowerCase();
+  if (NON_CHAT_ID_SIGNALS.some((s) => idLower.includes(s))) return false;
+  // Exclude if *all* capabilities are non-chat (e.g. a pure-embed model that also has types=['inference'])
+  const caps = (m.capabilities ?? []).map((s) => s.toLowerCase());
+  const chatCaps = caps.filter((c) => !NON_CHAT_EXACT.has(c));
+  if (caps.length > 0 && chatCaps.length === 0) return false;
+  return true;
 }
 
 function mapDaemonModelToKaiCatalog(m: DaemonModel): Record<string, unknown> {
