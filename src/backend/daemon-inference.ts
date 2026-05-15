@@ -294,7 +294,7 @@ function shouldForwardToolToDaemon(tool: InferenceTool): boolean {
   // host-tool execution bridge in the plugin inference-provider path, so Kai
   // receives a tool-call with no matching tool-result and marks it hung.
   if (tool.source === 'plugin' && tool.sourceId === 'legion') return false;
-  if (tool.name === 'plugin__legion__legionio') return false;
+  if (tool.name === 'plugin__legion__daemon') return false;
   return true;
 }
 

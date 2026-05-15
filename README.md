@@ -7,7 +7,7 @@ LegionIO inference runtime plugin for [Kai desktop](https://github.com/LegionIO/
 - **Inference routing** — registers as Kai's primary inference provider; all tool calls, compaction, memory, and chat stream through `/api/llm/inference`
 - **Live model catalog** — fetches the daemon's model list on startup and merges it into Kai's catalog (vllm models first, non-chat models excluded); re-syncs whenever the daemon comes back online
 - **Status banner** — shows "LegionIO ● Available" (green) or "LegionIO ● Unavailable" (amber) in the Kai header; polls every 30 seconds
-- **`legionio` tool** — a single conversation tool with 11 actions covering daemon health, knowledge, memory, workers, tasks, and arbitrary API calls
+- **`daemon` tool** — a single conversation tool with 11 actions covering daemon health, knowledge, memory, workers, tasks, and arbitrary API calls
 - **Automatic fallback** — if the daemon goes offline mid-session, Kai's built-in pipeline takes over with no user intervention
 
 ## Quick start
@@ -42,7 +42,7 @@ Open **Settings → LegionIO** in Kai. Two settings are exposed:
 
 JWT auth is read automatically from `crypt.json` in your LegionIO config directory (typically `~/.legionio/settings`). No manual key entry needed.
 
-## The `legionio` tool
+## The `daemon` tool
 
 The plugin registers one tool that Claude can call during conversations. It accepts an `action` parameter and an optional `params` object:
 
@@ -62,9 +62,9 @@ The plugin registers one tool that Claude can call during conversations. It acce
 
 Example:
 ```
-legionio { action: "query", params: { query: "deployment steps", limit: 5 } }
-legionio { action: "execute", params: { input: "restart the indexer worker" } }
-legionio { action: "status" }
+daemon { action: "query", params: { query: "deployment steps", limit: 5 } }
+daemon { action: "execute", params: { input: "restart the indexer worker" } }
+daemon { action: "status" }
 ```
 
 ## Model catalog behavior
@@ -94,7 +94,7 @@ kai-plugin-legion/
     │   ├── index.ts             # activate/deactivate, health poll, model catalog sync
     │   ├── daemon-client.ts     # HTTP client: circuit breaker, JWT auth, retries
     │   ├── daemon-inference.ts  # SSE streaming provider: message normalization, sync fallback
-    │   ├── tool.ts              # `legionio` tool registration (11 actions)
+    │   ├── tool.ts              # `daemon` tool registration (11 actions)
     │   └── utils.ts             # joinUrl, cleanText, clampNumber
     └── shared/
         ├── types.ts             # PluginAPI, PluginConfig, PluginState
@@ -108,7 +108,7 @@ The plugin is backend-only — no frontend bundle, no React, no custom panels. S
 | Permission | Purpose |
 |---|---|
 | `config:read/write` | Read daemon URL / enabled flag; write model catalog and provider config |
-| `tools:register` | Register the `legionio` conversation tool |
+| `tools:register` | Register the `daemon` conversation tool |
 | `ui:banner` | Show the Available / Unavailable status banner |
 | `ui:settings` | Register the LegionIO settings page |
 | `network:fetch` | HTTP requests to the daemon |

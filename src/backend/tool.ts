@@ -3,7 +3,7 @@ import { daemonJson } from './daemon-client.js';
 import { cleanText } from './utils.js';
 
 /**
- * Register the single "legionio" tool with the Kai plugin API.
+ * Register the single daemon tool with the Kai plugin API.
  *
  * The tool exposes the LegionIO daemon API as a set of named actions:
  *   status      — daemon health + readiness snapshot
@@ -21,7 +21,7 @@ import { cleanText } from './utils.js';
 export function registerTool(api: PluginAPI): void {
   api.tools.register([
     {
-      name: 'legionio',
+      name: 'daemon',
       description:
         'Interact with the LegionIO daemon. Use the `action` parameter to choose what to do. ' +
         'Actions: status (health snapshot), query (knowledge search), ingest (add to knowledge), ' +
@@ -199,7 +199,7 @@ export function registerTool(api: PluginAPI): void {
           default:
             return {
               ok: false,
-              error: `Unknown legionio action: "${action}". Valid actions: status, query, ingest, delete, workers, tasks, extensions, execute, config, memory, request.`,
+              error: `Unknown daemon action: "${action}". Valid actions: status, query, ingest, delete, workers, tasks, extensions, execute, config, memory, request.`,
             };
         }
       },
