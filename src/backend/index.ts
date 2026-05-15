@@ -115,13 +115,13 @@ async function syncModelCatalog(api: PluginAPI): Promise<void> {
     // providerSchema so Kai doesn't strip the entries on config parse.
     api.config.set('models.providers.legionio', {
       type: 'openai-compatible',
-      endpoint: config.daemonUrl,
+      endpoint: `${config.daemonUrl}/api/llm/inference`,
       apiKey: 'legionio-daemon',
       useResponsesApi: false,
     });
     api.config.set('models.providers.legionio_anthropic', {
       type: 'anthropic',
-      endpoint: config.daemonUrl,
+      endpoint: `${config.daemonUrl}/api/llm/inference`,
       apiKey: 'legionio-daemon',
     });
 
