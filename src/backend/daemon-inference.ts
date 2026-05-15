@@ -12,6 +12,7 @@ import type { PluginAPI, PluginConfig } from '../shared/types.js';
 import { buildDaemonHeaders, markDaemonReachable } from './daemon-client.js';
 import { joinUrl, cleanText } from './utils.js';
 import { USER_AGENT } from '../shared/constants.js';
+import { debugLog } from './debug-log.js';
 
 // ── Types (mirror Kai's StreamEvent subset) ─────────────────────────────
 
@@ -159,6 +160,23 @@ export async function* streamDaemonInference(
     requestBody.knowledge_scope = pluginData.knowledgeScope;
   }
 
+  // ── Debug: log the full request before sending ──────────────────────────
+  debugLog('inference:request', {
+    url: inferenceUrl,
+    modelKey: options.modelKey,
+    requestBody: {
+      ...requestBody,
+      messages: (requestBody.messages as unknown[])?.map((m: unknown) => {
+        const msg = m as Record<string, unknown>;
+        // Truncate content for readability
+        const content = typeof msg.content === 'string'
+          ? msg.content.slice(0, 200) + (msg.content.length > 200 ? '…' : '')
+          : msg.content;
+        return { ...msg, content };
+      }),
+    },
+  });
+
   let response: Response;
   try {
     response = await cachedApi.fetch(inferenceUrl, {
@@ -172,14 +190,23 @@ export async function* streamDaemonInference(
     });
   } catch (error) {
     markDaemonReachable(false);
-    throw new Error(`Daemon inference request failed: ${error instanceof Error ? error.message : String(error)}`);
+    const msg = `Daemon inference request failed: ${error instanceof Error ? error.message : String(error)}`;
+    debugLog('inference:fetch-error', { error: msg });
+    throw new Error(msg);
   }
+
+  debugLog('inference:response', {
+    status: response.status,
+    ok: response.ok,
+    contentType: response.headers.get('content-type'),
+  });
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     if (response.status === 0 || response.status >= 500) {
       markDaemonReachable(false);
     }
+    debugLog('inference:http-error', { status: response.status, body: body.slice(0, 1000) });
     throw new Error(`Daemon inference HTTP ${response.status}: ${body.slice(0, 500)}`);
   }
 
@@ -424,6 +451,12 @@ async function* consumeDaemonSSE(
       const eventName = normalizeDaemonEventName(explicitEventName, payload);
       if (!eventName) return [];
 
+      // Log every SSE event from the daemon (truncate large payloads)
+      debugLog('inference:sse-event', {
+        eventName,
+        payload: JSON.stringify(payload).slice(0, 500),
+      });
+
       if (eventName === 'text-delta' || eventName === 'text_delta' || eventName === 'delta') {
         const text = (payload.text as string) || (payload.delta as string) || '';
         return text ? [{ conversationId, type: 'text-delta', text }] : [];
@@ -594,10 +627,12 @@ async function* consumeDaemonSSE(
     }
   } catch (error) {
     if (!abortSignal?.aborted) {
+      const msg = `SSE stream error: ${error instanceof Error ? error.message : String(error)}`;
+      debugLog('inference:sse-error', { error: msg });
       yield {
         conversationId,
         type: 'error',
-        error: `SSE stream error: ${error instanceof Error ? error.message : String(error)}`,
+        error: msg,
       };
     }
   } finally {
@@ -605,6 +640,7 @@ async function* consumeDaemonSSE(
   }
 
   if (!emittedAny && !abortSignal?.aborted) {
+    debugLog('inference:sse-no-output', {});
     yield {
       conversationId,
       type: 'error',
