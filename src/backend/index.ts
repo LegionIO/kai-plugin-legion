@@ -42,6 +42,97 @@ export function getPluginConfig(api: PluginAPI): PluginConfig {
   };
 }
 
+// ── Model catalog sync ────────────────────────────────────────────────────────
+
+type DaemonModel = {
+  id: string;
+  types?: string[];
+  capabilities?: string[];
+  model_families?: string[];
+  max_context?: number | null;
+  enabled?: boolean;
+};
+
+const NON_CHAT_SIGNALS = [
+  'embed', 'embedding', 'embeddings',
+  'speech-to-text', 'text-to-speech', 'speech', 'tts', 'stt',
+  'realtime', 'image', 'video', 'transcription', 'transcribe',
+];
+
+function isDaemonChatModel(m: DaemonModel): boolean {
+  if (!m.id || m.enabled === false) return false;
+  if (!m.types?.includes('inference')) return false;
+  const signals = [m.id, ...(m.capabilities ?? [])].map((s) => s.toLowerCase());
+  return !signals.some((s) => NON_CHAT_SIGNALS.some((bad) => s.includes(bad)));
+}
+
+function mapDaemonModelToKaiCatalog(m: DaemonModel): Record<string, unknown> {
+  const families = (m.model_families ?? []).map((f) => f.toLowerCase());
+  const isAnthropic = families.includes('anthropic') || m.id.startsWith('claude') || m.id.startsWith('anthropic.');
+  const provider = isAnthropic ? 'legionio_anthropic' : 'legionio';
+
+  // Derive a human-readable display name from the id
+  const displayName = m.id
+    .replace(/[-_]/g, ' ')
+    .replace(/\b(\w)/g, (c) => c.toUpperCase())
+    .trim();
+
+  return {
+    key: m.id,
+    displayName,
+    provider,
+    modelName: m.id,
+    ...(m.max_context ? { maxInputTokens: m.max_context } : {}),
+  };
+}
+
+async function syncModelCatalog(api: PluginAPI): Promise<void> {
+  const config = getPluginConfig(api);
+  if (!config.enabled || !config.daemonUrl) return;
+
+  try {
+    const result = await daemonJson(api, '/api/llm/models', { quiet: true });
+    if (!result.ok || !result.data) {
+      api.log.warn('[legion] Failed to fetch model catalog:', result.error);
+      return;
+    }
+
+    const raw = result.data as { models?: DaemonModel[] };
+    const allModels: DaemonModel[] = raw.models ?? [];
+    const chatModels = allModels.filter(isDaemonChatModel);
+
+    if (chatModels.length === 0) {
+      api.log.warn('[legion] No chat models returned from daemon');
+      return;
+    }
+
+    const catalog = chatModels.map(mapDaemonModelToKaiCatalog);
+
+    // Register the legionio provider (pass-through — all routing handled by daemon)
+    api.config.set('models.providers.legionio', {
+      type: 'legionio',
+      endpoint: config.daemonUrl,
+    });
+    api.config.set('models.providers.legionio_anthropic', {
+      type: 'legionio',
+      endpoint: config.daemonUrl,
+    });
+
+    api.config.set('models.catalog', catalog);
+
+    // Default to the first model if not already set
+    const appConfig = api.config.get() as { models?: { defaultModelKey?: string } } | null;
+    const currentDefault = appConfig?.models?.defaultModelKey;
+    if (!currentDefault || !catalog.find((m) => m.key === currentDefault)) {
+      api.config.set('models.defaultModelKey', catalog[0].key);
+    }
+
+    api.log.info(`[legion] Model catalog synced: ${catalog.length} chat models`);
+  } catch (err) {
+    api.log.warn('[legion] Model catalog sync error:', err);
+  }
+}
+
 // ── Runtime contribution ──────────────────────────────────────────────────────
 
 function ensureRuntimeRegistration(api: PluginAPI, config: PluginConfig): void {
@@ -86,6 +177,7 @@ async function checkHealth(api: PluginAPI): Promise<void> {
 
   const result = await daemonJson(api, config.readyPath, { quiet: true });
   const isOnline = result.ok;
+  const wasOffline = !isDaemonOnline();
   markDaemonReachable(isOnline);
 
   api.state.replace({
@@ -95,6 +187,11 @@ async function checkHealth(api: PluginAPI): Promise<void> {
   });
 
   updateBanner(api, isOnline);
+
+  // Sync model catalog when daemon comes online (or on first online check)
+  if (isOnline && wasOffline) {
+    void syncModelCatalog(api);
+  }
 }
 
 function scheduleHealthPoll(api: PluginAPI): void {
@@ -159,8 +256,12 @@ export async function activate(api: PluginAPI): Promise<void> {
     description: 'LegionIO daemon API. Actions: status, query, ingest, workers, tasks, extensions, execute, config, memory, request.',
   });
 
-  // Initial health check + banner
+  // Initial health check + banner + model catalog sync
   await checkHealth(api);
+  // If daemon was already online on first check, sync catalog now
+  if (isDaemonOnline()) {
+    void syncModelCatalog(api);
+  }
   scheduleHealthPoll(api);
 
   // Handle actions from the settings UI
