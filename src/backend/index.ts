@@ -106,7 +106,7 @@ async function syncModelCatalog(api: PluginAPI): Promise<void> {
       return;
     }
 
-    const catalog = chatModels.map(mapDaemonModelToKaiCatalog);
+    const legionEntries = chatModels.map(mapDaemonModelToKaiCatalog);
 
     // Register catalog providers using Kai-compatible type values.
     // These entries are cosmetic — actual inference bypasses Kai's model pipeline
@@ -125,16 +125,24 @@ async function syncModelCatalog(api: PluginAPI): Promise<void> {
       apiKey: 'legionio-daemon',
     });
 
-    api.config.set('models.catalog', catalog);
+    // Merge with existing catalog: strip any previous legion entries, then prepend new ones.
+    // This avoids clobbering models registered by other plugins (e.g. llm-gateway).
+    const appConfig = api.config.get() as { models?: { catalog?: Array<Record<string, unknown>>; defaultModelKey?: string } } | null;
+    const existingCatalog: Array<Record<string, unknown>> = appConfig?.models?.catalog ?? [];
+    const withoutLegion = existingCatalog.filter(
+      (m) => typeof m.provider !== 'string' || !m.provider.startsWith('legionio'),
+    );
+    const mergedCatalog = [...legionEntries, ...withoutLegion];
+    api.config.set('models.catalog', mergedCatalog);
 
-    // Default to the first model if not already set
-    const appConfig = api.config.get() as { models?: { defaultModelKey?: string } } | null;
+    // Default to the first legion model if no default is set (or current default is unknown)
     const currentDefault = appConfig?.models?.defaultModelKey;
-    if (!currentDefault || !catalog.find((m) => m.key === currentDefault)) {
-      api.config.set('models.defaultModelKey', catalog[0].key);
+    const allKeys = new Set(mergedCatalog.map((m) => m.key));
+    if (!currentDefault || !allKeys.has(currentDefault)) {
+      api.config.set('models.defaultModelKey', legionEntries[0].key);
     }
 
-    api.log.info(`[legion] Model catalog synced: ${catalog.length} chat models`);
+    api.log.info(`[legion] Model catalog synced: ${legionEntries.length} legion models (${mergedCatalog.length} total)`);
   } catch (err) {
     api.log.warn('[legion] Model catalog sync error:', err);
   }
@@ -282,13 +290,17 @@ export async function activate(api: PluginAPI): Promise<void> {
     }
   });
 
-  // Re-register provider and restart poll on config changes
+  // Re-register provider and restart poll on config changes.
+  // Also re-merge the model catalog in case another plugin (e.g. llm-gateway) overwrote it.
   api.config.onChanged(() => {
     const updated = getPluginConfig(api);
     ensureBackendRegistration(api, updated);
     ensureRuntimeRegistration(api, updated);
     scheduleHealthPoll(api);
     void checkHealth(api);
+    if (isDaemonOnline()) {
+      void syncModelCatalog(api);
+    }
   });
 }
 
