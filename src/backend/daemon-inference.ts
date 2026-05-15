@@ -214,12 +214,12 @@ export async function* streamDaemonInference(
 
   const contentType = response.headers.get('content-type') ?? '';
   if (contentType.includes('text/event-stream') && response.body) {
-    yield* consumeDaemonSSE(options.conversationId, response.body, options.abortSignal);
+    yield* consumeDaemonSSE(options.conversationId, response.body, options.modelKey, options.abortSignal);
     return;
   }
 
   // Non-streaming fallback — synchronous JSON response
-  yield* handleSyncResponse(options.conversationId, response);
+  yield* handleSyncResponse(options.conversationId, response, options.modelKey);
 }
 
 // ── Message normalisation ───────────────────────────────────────────────
@@ -421,6 +421,7 @@ function normalizeDaemonEventName(eventName: string | undefined, payload: Record
 async function* consumeDaemonSSE(
   conversationId: string,
   body: ReadableStream<Uint8Array>,
+  requestedModelKey: string | undefined,
   abortSignal?: AbortSignal,
 ): AsyncGenerator<InferenceStreamEvent> {
   const reader = body.getReader();
@@ -647,7 +648,11 @@ async function* consumeDaemonSSE(
       error: 'Daemon SSE stream ended without producing any output.',
     };
   }
-  yield { conversationId, type: 'done' };
+  // Synthetic done — stamp the requested model key so the UI indicator shows
+  // which model was used even if the daemon errored before sending its own done.
+  const syntheticDone: InferenceStreamEvent = { conversationId, type: 'done' };
+  if (requestedModelKey) (syntheticDone as Record<string, unknown>).messageMeta = { sourceModel: requestedModelKey };
+  yield syntheticDone;
 }
 
 // ── Sync response handler ───────────────────────────────────────────────
@@ -655,6 +660,7 @@ async function* consumeDaemonSSE(
 async function* handleSyncResponse(
   conversationId: string,
   response: Response,
+  requestedModelKey?: string,
 ): AsyncGenerator<InferenceStreamEvent> {
   let body: unknown = null;
   try {
@@ -670,7 +676,9 @@ async function* handleSyncResponse(
   if (!response.ok) {
     const errorMessage = data.error?.message || `Daemon request failed with HTTP ${response.status}.`;
     yield { conversationId, type: 'error', error: errorMessage };
-    yield { conversationId, type: 'done' };
+    const errDone: InferenceStreamEvent = { conversationId, type: 'done' };
+    if (requestedModelKey) (errDone as Record<string, unknown>).messageMeta = { sourceModel: requestedModelKey };
+    yield errDone;
     return;
   }
 
@@ -689,5 +697,7 @@ async function* handleSyncResponse(
       error: 'Daemon returned an unexpected payload.',
     };
   }
-  yield { conversationId, type: 'done' };
+  const syncDone: InferenceStreamEvent = { conversationId, type: 'done' };
+  if (requestedModelKey) (syncDone as Record<string, unknown>).messageMeta = { sourceModel: requestedModelKey };
+  yield syncDone;
 }
