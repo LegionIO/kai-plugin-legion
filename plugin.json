@@ -2,7 +2,7 @@
   "name": "legion",
   "displayName": "LegionIO",
   "version": "2.0.0",
-  "description": "LegionIO inference runtime for Kai. Routes all LLM calls through the LegionIO daemon when enabled and online.",
+  "description": "Routes LLM inference through the LegionIO daemon when online, with automatic fallback to Kai's built-in pipeline. Syncs the daemon's live model catalog into Kai and exposes daemon tools for knowledge, memory, workers, and tasks.",
   "icon": {
     "lucide": "cpu"
   },
