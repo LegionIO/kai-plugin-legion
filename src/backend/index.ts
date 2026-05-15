@@ -108,18 +108,21 @@ async function syncModelCatalog(api: PluginAPI): Promise<void> {
 
     const catalog = chatModels.map(mapDaemonModelToKaiCatalog);
 
-    // Register the legionio provider using Kai-compatible provider types.
-    // legionio acts as an OpenAI-compatible pass-through for non-Anthropic models,
-    // and as an Anthropic-compatible endpoint for Claude/Anthropic models.
+    // Register catalog providers using Kai-compatible type values.
+    // These entries are cosmetic — actual inference bypasses Kai's model pipeline
+    // entirely and goes direct to the daemon via streamDaemonInference().
+    // The endpoint and apiKey here are never called; they just satisfy the
+    // providerSchema so Kai doesn't strip the entries on config parse.
     api.config.set('models.providers.legionio', {
       type: 'openai-compatible',
-      endpoint: `${config.daemonUrl}/v1`,
-      apiKey: config.apiKey || 'legionio',
+      endpoint: config.daemonUrl,
+      apiKey: 'legionio-daemon',
+      useResponsesApi: false,
     });
     api.config.set('models.providers.legionio_anthropic', {
       type: 'anthropic',
-      endpoint: `${config.daemonUrl}/v1`,
-      apiKey: config.apiKey || 'legionio',
+      endpoint: config.daemonUrl,
+      apiKey: 'legionio-daemon',
     });
 
     api.config.set('models.catalog', catalog);
