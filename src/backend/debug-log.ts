@@ -1,7 +1,6 @@
 /**
- * Debug logger — writes structured entries to ~/Documents/kai/debug-logs/legion-inference.ndjson
+ * Debug logger — writes structured entries to ~/Documents/kai/kai-desktop/debug-logs/legion-inference.ndjson
  * Each line is a JSON object (newline-delimited JSON) with a timestamp.
- * Only active when the DEBUG_LEGION env var is set or always in dev builds.
  * Safe to leave in — writes are async and failures are silently ignored.
  */
 
@@ -9,7 +8,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
-const LOG_DIR = join(homedir(), 'Documents', 'kai', 'debug-logs');
+const LOG_DIR = join(homedir(), 'Documents', 'kai', 'kai-desktop', 'debug-logs');
 const LOG_FILE = join(LOG_DIR, 'legion-inference.ndjson');
 
 let dirReady = false;
