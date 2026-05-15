@@ -41,6 +41,10 @@ export type InferenceTool = {
   name: string;
   description?: string;
   inputSchema?: unknown;
+  parameters?: unknown;
+  input_schema?: unknown;
+  source?: string;
+  sourceId?: string;
 };
 
 export type InferenceStreamOptions = {
@@ -112,6 +116,8 @@ export async function* streamDaemonInference(
     return;
   }
 
+  const toolDeclarations = serializeToolsForDaemon(options.tools);
+
   const requestBody: Record<string, unknown> = {
     messages: normalizedMessages,
     stream: true,
@@ -128,7 +134,7 @@ export async function* streamDaemonInference(
     // tool — see `build_client_tool_class` at helpers.rb:296. Assistant
     // messages with `tool_calls` and `role: 'tool'` messages with `tool_call_id`
     // are accepted by the lex-llm adapter at lex_llm_adapter.rb:113-114.
-    ...(options.tools && options.tools.length > 0 ? { tools: options.tools } : {}),
+    ...(toolDeclarations.length > 0 ? { tools: toolDeclarations } : {}),
   };
 
   // Look up per-conversation routing overrides
@@ -160,12 +166,19 @@ export async function* streamDaemonInference(
     requestBody.knowledge_scope = pluginData.knowledgeScope;
   }
 
-  // ── Debug: log the full request before sending ──────────────────────────
+  const serializedToolBytes = JSON.stringify(toolDeclarations).length;
+
+  // ── Debug: log request metadata before sending ──────────────────────────
   debugLog('inference:request', {
     url: inferenceUrl,
     modelKey: options.modelKey,
+    toolCount: toolDeclarations.length,
+    serializedToolBytes,
     requestBody: {
       ...requestBody,
+      ...(toolDeclarations.length > 0
+        ? { tools: `[${toolDeclarations.length} compact tool schemas, ${serializedToolBytes} bytes]` }
+        : {}),
       messages: (requestBody.messages as unknown[])?.map((m: unknown) => {
         const msg = m as Record<string, unknown>;
         // Truncate content for readability
@@ -223,6 +236,79 @@ export async function* streamDaemonInference(
 }
 
 // ── Message normalisation ───────────────────────────────────────────────
+
+type DaemonToolDeclaration = {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+};
+
+const toolSchemaCache = new WeakMap<object, Record<string, unknown>>();
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function clonePlainObject(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value)) return null;
+  try {
+    return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function zodToJsonSchemaObject(schema: unknown): Record<string, unknown> {
+  if (!isRecord(schema)) return { type: 'object', properties: {} };
+
+  const cached = toolSchemaCache.get(schema);
+  if (cached) return cached;
+
+  const toJSONSchema = schema.toJSONSchema;
+  if (typeof toJSONSchema === 'function') {
+    try {
+      const jsonSchema = toJSONSchema.call(schema);
+      const result = clonePlainObject(jsonSchema) ?? { type: 'object', properties: {} };
+      delete result.$schema;
+      toolSchemaCache.set(schema, result);
+      return result;
+    } catch {
+      // Fall through to permissive fallback.
+    }
+  }
+
+  const fallback = { type: 'object', properties: {} };
+  toolSchemaCache.set(schema, fallback);
+  return fallback;
+}
+
+function normalizeToolSchema(tool: InferenceTool): Record<string, unknown> {
+  return clonePlainObject(tool.parameters)
+    ?? clonePlainObject(tool.input_schema)
+    ?? zodToJsonSchemaObject(tool.inputSchema);
+}
+
+function shouldForwardToolToDaemon(tool: InferenceTool): boolean {
+  // The Legion plugin's own Kai-side tool is a wrapper around the same daemon.
+  // If advertised to the daemon, the model can call it, but there is no
+  // host-tool execution bridge in the plugin inference-provider path, so Kai
+  // receives a tool-call with no matching tool-result and marks it hung.
+  if (tool.source === 'plugin' && tool.sourceId === 'legion') return false;
+  if (tool.name === 'plugin__legion__legionio') return false;
+  return true;
+}
+
+function serializeToolsForDaemon(tools: InferenceTool[] | undefined): DaemonToolDeclaration[] {
+  if (!tools?.length) return [];
+
+  return tools
+    .filter((tool) => typeof tool.name === 'string' && tool.name.trim().length > 0 && shouldForwardToolToDaemon(tool))
+    .map((tool) => ({
+      name: tool.name,
+      description: tool.description ?? '',
+      parameters: normalizeToolSchema(tool),
+    }));
+}
 
 /**
  * Daemon-compatible message shape.

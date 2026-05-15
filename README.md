@@ -1,158 +1,131 @@
 # kai-plugin-legion
 
-Legion daemon integration plugin for [Kai desktop](https://github.com/LegionIO/kai-desktop). Provides daemon health monitoring, event streaming, workflow routing, knowledge panels, marketplace tooling, GitHub views, sub-agent management, and **daemon-powered LLM inference**.
+LegionIO inference runtime plugin for [Kai desktop](https://github.com/LegionIO/kai-desktop). When enabled and the daemon is online, all LLM inference routes through the LegionIO daemon. Falls back to Kai's built-in pipeline automatically when the daemon is offline.
 
-## Inference Routing
+## What it does
 
-When this plugin is installed and the Legion daemon is online, **all LLM inference automatically routes through the daemon's `/api/llm/inference` endpoint**. This upgrades Kai's standard inference pipeline to use your local daemon for model execution, tool handling, and context management.
+- **Inference routing** — registers as Kai's primary inference provider; all tool calls, compaction, memory, and chat stream through `/api/llm/inference`
+- **Live model catalog** — fetches the daemon's model list on startup and merges it into Kai's catalog (vllm models first, non-chat models excluded); re-syncs whenever the daemon comes back online
+- **Status banner** — shows "LegionIO ● Available" (green) or "LegionIO ● Unavailable" (amber) in the Kai header; polls every 30 seconds
+- **`legionio` tool** — a single conversation tool with 11 actions covering daemon health, knowledge, memory, workers, tasks, and arbitrary API calls
+- **Automatic fallback** — if the daemon goes offline mid-session, Kai's built-in pipeline takes over with no user intervention
 
-- **Daemon online** → All inference goes through Legion daemon
-- **Daemon offline** → Automatic fallback to Kai's standard Mastra pipeline
-- **Seamless switching** → No manual intervention required
-
-The daemon is the **primary inference provider** when this plugin is active — not an optional backend. Configure the daemon URL in Settings > Legion > Connection.
-
-## Quick Start
+## Quick start
 
 ```bash
-# Clone and install
 git clone https://github.com/LegionIO/kai-plugin-legion.git
 cd kai-plugin-legion
 npm install
 
-# Build for development (installs to ~/.kai/plugins/legion/)
+# Dev build → installs directly to ~/.kai/plugins/legion/
 npm run dev
 
-# Or build for production (outputs to dist/)
+# Production build → outputs to dist/
 npm run build
 ```
 
-Launch (or restart) Kai desktop — it will discover the plugin and prompt you to approve its permissions.
-
-## Development
+Restart Kai desktop — it will discover the plugin and prompt you to approve its permissions.
 
 ```bash
-# Dev build + file watcher (rebuilds on changes)
+# Rebuild on file changes
 npm run dev -- --watch
-
-# Production build (outputs to dist/)
-npm run build
 ```
-
-After rebuilding, restart Kai desktop to pick up changes (the host hashes plugin files on load).
-
-## Project Structure
-
-```
-kai-plugin-legion/
-├── plugin.json              # Plugin manifest (name, permissions, config schema)
-├── package.json             # Dependencies and scripts
-├── tsconfig.json            # TypeScript config (type checking only)
-├── esbuild.config.mjs       # Bundler — dual entry points (backend + frontend)
-├── .github/workflows/
-│   └── release.yml          # Automated release workflow
-├── src/
-│   ├── backend/             # Node.js/Electron main process (16 modules)
-│   │   ├── index.ts         # activate/deactivate entry point, runtime sync
-│   │   ├── daemon-client.ts # HTTP client with circuit breaker + JWT auth
-│   │   ├── events.ts        # SSE event stream with auto-reconnect
-│   │   ├── events-classify.ts # Event → notification classifier
-│   │   ├── backend.ts       # Backend registration state tracking
-│   │   ├── tools.ts         # 8 registered tools (refresh, threads, panels, etc.)
-│   │   ├── actions.ts       # Action handler dispatcher
-│   │   ├── actions-daemon.ts # 65+ daemon CRUD action handlers
-│   │   ├── workflows.ts     # Trigger dispatch + triage routing
-│   │   ├── conversations.ts # Managed conversations
-│   │   ├── knowledge.ts     # Apollo query, ingest, monitors
-│   │   ├── config.ts        # Config resolution and auth source detection
-│   │   ├── state.ts         # Plugin state management + navigation updates
-│   │   ├── ui.ts            # Panels, nav items, banners, commands
-│   │   ├── doctor.ts        # Diagnostic health checks
-│   │   └── utils.ts         # Shared utilities
-│   ├── frontend/            # Browser/renderer process
-│   │   ├── index.ts         # Component registration (PanelView + SettingsView)
-│   │   ├── lib/             # React shim, hooks, utilities, bridge
-│   │   ├── components/      # 13 shared UI primitives
-│   │   ├── panels/          # 8 panel views (Dashboard, Knowledge, GitHub, etc.)
-│   │   └── settings/        # 25 settings tabs (Connection, LLM, GAIA, etc.)
-│   └── shared/              # Shared between backend and frontend
-│       ├── types.ts         # TypeScript type definitions
-│       └── constants.ts     # Panel definitions, timing, limits, defaults
-└── dist/                    # Build output (gitignored)
-```
-
-## Build System
-
-The plugin uses **esbuild** with two bundled entry points:
-
-| Entry | Platform | Output |
-|-------|----------|--------|
-| `src/backend/index.ts` | Node.js (ESM) | `backend.js` |
-| `src/frontend/index.ts` | Browser (ESM) | `frontend.js` |
-
-- `npm run dev` builds to `~/.kai/plugins/legion/` (with `plugin.json` copied alongside)
-- `npm run build` builds to `dist/`
-- `--watch` flag enables file watching for either mode
 
 ## Configuration
 
-After loading, open **Settings > Legion** in Kai desktop. The plugin exposes 25 config fields across multiple tabs. At minimum you need:
+Open **Settings → LegionIO** in Kai. Two settings are exposed:
 
-- **Daemon URL** — e.g. `http://127.0.0.1:4567`
-- **Config Dir** — path containing `crypt.json` for JWT auth (defaults to `~/.legionio/settings`)
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Enable LegionIO Runtime | `true` | Toggle inference routing on/off |
+| Daemon URL | `http://127.0.0.1:4567` | The LegionIO daemon HTTP endpoint |
 
-## Panels
+JWT auth is read automatically from `crypt.json` in your LegionIO config directory (typically `~/.legionio/settings`). No manual key entry needed.
 
-| Panel | Description |
-|-------|-------------|
-| Mission Control | Dashboard with daemon health, tasks, workers, GAIA status |
-| Notifications | Real-time event stream from the daemon |
-| Operations | Command center for natural-language daemon commands |
-| Knowledge | Apollo knowledge base queries and ingestion |
-| GitHub | Repository status and integration overview |
-| Marketplace | Extension/plugin management |
-| Workflows | Trigger rules, triage routing, active workflows |
-| Sub-Agents | Daemon-spawned sub-agent monitoring |
+## The `legionio` tool
 
-## Tools
+The plugin registers one tool that Claude can call during conversations. It accepts an `action` parameter and an optional `params` object:
 
-The plugin registers 8 tools that Claude can call during conversations:
+| Action | Endpoint | Description |
+|--------|----------|-------------|
+| `status` | `GET /api/ready` + `/api/health` | Daemon readiness and health snapshot |
+| `query` | `POST /api/apollo/query` | Search the Apollo knowledge base |
+| `ingest` | `POST /api/apollo/ingest` | Add content to the knowledge base |
+| `delete` | `DELETE /api/apollo/{id}` | Remove a knowledge entry by ID |
+| `workers` | `GET /api/workers` | Live worker status (all or by ID) |
+| `tasks` | `GET /api/tasks` | Task list with optional status filter |
+| `extensions` | `GET /api/extensions` | Loaded extension list |
+| `execute` | `POST /api/do` | Run a natural-language command on the daemon |
+| `config` | `GET/POST /api/settings/llm` | Read or write LLM pipeline settings |
+| `memory` | `POST /api/memory/search` | Search daemon memory stores |
+| `request` | `{method} {path}` | Generic escape-hatch for any daemon endpoint |
 
-1. **refresh_status** — Refresh daemon health and plugin state
-2. **create_thread** — Create a Legion-managed conversation
-3. **open_panel** — Open a Legion control panel
-4. **execute_command** — Send a natural-language command to the daemon
-5. **knowledge_query** — Query Legion knowledge / Apollo
-6. **manage_triggers** — List, enable, disable, or test trigger rules
-7. **memory_search** — Search daemon memory stores
-8. **worker_status** — Fetch live status for one or all workers
+Example:
+```
+legionio { action: "query", params: { query: "deployment steps", limit: 5 } }
+legionio { action: "execute", params: { input: "restart the indexer worker" } }
+legionio { action: "status" }
+```
+
+## Model catalog behavior
+
+On first successful health check, the plugin fetches `/api/llm/models` and:
+
+1. Filters to `types: ["inference"]` models only (excludes embed, TTS, STT, image, video)
+2. Excludes haiku models (temporarily, pending a daemon-side fix for the `lex-*` provider extension)
+3. Sorts vllm-backed models to the top
+4. Merges the resulting list into Kai's model catalog — prepended before any other plugin's models, without clobbering them
+5. Sets the first legion model as the default if no default is currently active
+
+The catalog re-syncs automatically whenever the daemon transitions from offline → online.
+
+## Project structure
+
+```
+kai-plugin-legion/
+├── plugin.json                  # Manifest: permissions, config schema
+├── package.json
+├── tsconfig.json
+├── esbuild.config.mjs           # Single backend entry point
+├── .github/workflows/
+│   └── release.yml              # Automated release (verbump: major/minor/patch/none)
+└── src/
+    ├── backend/
+    │   ├── index.ts             # activate/deactivate, health poll, model catalog sync
+    │   ├── daemon-client.ts     # HTTP client: circuit breaker, JWT auth, retries
+    │   ├── daemon-inference.ts  # SSE streaming provider: message normalization, sync fallback
+    │   ├── tool.ts              # `legionio` tool registration (11 actions)
+    │   └── utils.ts             # joinUrl, cleanText, clampNumber
+    └── shared/
+        ├── types.ts             # PluginAPI, PluginConfig, PluginState
+        └── constants.ts         # HEALTH_POLL_MS, BANNER_ID, circuit-breaker timing
+```
+
+The plugin is backend-only — no frontend bundle, no React, no custom panels. Settings are handled by Kai's built-in config UI.
 
 ## Permissions
 
 | Permission | Purpose |
 |---|---|
-| `config:read/write` | Read and persist plugin settings |
-| `tools:register` | Register 8 conversation tools |
-| `ui:banner/modal/settings/panel/navigation` | Status banner, settings, 8 panels, sidebar nav |
-| `messages:hook` | Pre/post message processing |
-| `network:fetch` | HTTP requests to daemon |
-| `notifications:send` | Toast and native OS notifications |
-| `conversations:read/write` | Manage Legion threads |
-| `navigation:open` | Open panels and conversations programmatically |
-| `state:publish` | Publish plugin state to renderer |
-| `agent:inference-provider` | Route LLM inference through daemon backend |
+| `config:read/write` | Read daemon URL / enabled flag; write model catalog and provider config |
+| `tools:register` | Register the `legionio` conversation tool |
+| `ui:banner` | Show the Available / Unavailable status banner |
+| `ui:settings` | Register the LegionIO settings page |
+| `network:fetch` | HTTP requests to the daemon |
+| `state:publish` | Publish online/offline state to the renderer |
+| `agent:inference-provider` | Take over as Kai's primary inference provider |
+| `agent:register-runtime` | Register the `legion` runtime for Kai's runtime selector |
+| `agent:register-cli-tool` | Register the `legionio` binary as a usable CLI tool |
 
 ## Releasing
 
-The included GitHub Actions workflow automates versioning and publishing:
+```
+Actions → Release Plugin → Run workflow → verbump: patch / minor / major / none
+```
 
-1. Go to **Actions > Release Plugin > Run workflow**
-2. Choose a version bump (major / minor / patch)
-3. The workflow will:
-   - Bump version in `plugin.json` and `package.json`
-   - Commit and tag the release
-   - Build the plugin
-   - Create a GitHub Release with `legion-v{version}.tar.gz`
+The workflow bumps the version in `plugin.json` and `package.json`, tags the commit, builds the plugin, and publishes a GitHub Release with `legion-v{version}.tar.gz`.
+
+Use `none` to re-release the current version without a version bump.
 
 ## License
 
