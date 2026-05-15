@@ -49,6 +49,8 @@ type DaemonModel = {
   types?: string[];
   capabilities?: string[];
   model_families?: string[];
+  providers?: string[];
+  instances?: string[];
   max_context?: number | null;
   enabled?: boolean;
 };
@@ -85,11 +87,15 @@ function mapDaemonModelToKaiCatalog(m: DaemonModel): Record<string, unknown> {
   const isAnthropic = families.includes('anthropic') || m.id.startsWith('claude') || m.id.startsWith('anthropic.');
   const provider = isAnthropic ? 'legionio_anthropic' : 'legionio';
 
-  // Derive a human-readable display name from the id
   const displayName = m.id
     .replace(/[-_]/g, ' ')
     .replace(/\b(\w)/g, (c) => c.toUpperCase())
     .trim();
+
+  // Build tags: provider:* and instance:* carry daemon routing metadata.
+  const tags: string[] = [];
+  for (const p of m.providers ?? []) tags.push(`provider:${p}`);
+  for (const i of m.instances ?? []) tags.push(`instance:${i}`);
 
   return {
     key: m.id,
@@ -97,6 +103,7 @@ function mapDaemonModelToKaiCatalog(m: DaemonModel): Record<string, unknown> {
     provider,
     modelName: m.id,
     ...(m.max_context ? { maxInputTokens: m.max_context } : {}),
+    tags,
   };
 }
 
@@ -120,7 +127,24 @@ async function syncModelCatalog(api: PluginAPI): Promise<void> {
       return;
     }
 
-    const legionEntries = chatModels.map(mapDaemonModelToKaiCatalog);
+    // TODO: haiku models are excluded for now because they route through
+    // anthropic/apollo or bedrock/apollo which require the lex-* extension to
+    // be loaded on the daemon. Until that's resolved, haiku models would appear
+    // in the catalog but fail on every inference call. Uncomment this filter
+    // once the lex-* provider registration issue is fixed daemon-side.
+    const visibleChatModels = chatModels.filter(
+      (m) => !m.id.toLowerCase().includes('haiku'),
+    );
+
+    // Sort: vllm models first (they work without lex-* extension), then the rest
+    const sortedChatModels = [...visibleChatModels].sort((a, b) => {
+      const aIsVllm = (a.providers ?? []).includes('vllm');
+      const bIsVllm = (b.providers ?? []).includes('vllm');
+      if (aIsVllm !== bIsVllm) return aIsVllm ? -1 : 1;
+      return 0;
+    });
+
+    const legionEntries = sortedChatModels.map(mapDaemonModelToKaiCatalog);
 
     // Register catalog providers using Kai-compatible type values.
     // These entries are cosmetic — actual inference bypasses Kai's model pipeline
