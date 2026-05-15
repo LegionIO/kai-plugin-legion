@@ -66,21 +66,33 @@ export function shouldShortCircuit(path: string, config: PluginConfig): boolean 
 }
 
 // ---------------------------------------------------------------------------
+// Config provider (set by index.ts during activate to break circular dep)
+// ---------------------------------------------------------------------------
+
+let configProvider: ((api: PluginAPI) => PluginConfig) | null = null;
+
+export function setConfigProvider(fn: (api: PluginAPI) => PluginConfig): void {
+  configProvider = fn;
+}
+
+// ---------------------------------------------------------------------------
 // Public daemon helpers
 // ---------------------------------------------------------------------------
 
 /**
- * High-level helper: resolves the current plugin config internally.
+ * High-level helper: resolves the current plugin config via the registered
+ * config provider. Call setConfigProvider() during activate() before any
+ * daemon requests are made.
  */
 export async function daemonJson(
   api: PluginAPI,
   path: string,
   options: DaemonRequestOptions = {},
 ): Promise<DaemonResult> {
-  // Import getPluginConfig lazily to avoid hard circular deps at load time.
-  // The caller (index.ts / action handlers) will already have set up config.
-  const { getPluginConfig } = await import('./config.js');
-  const config = getPluginConfig(api);
+  if (!configProvider) {
+    return { ok: false, status: 0, error: 'Plugin config provider not initialized', data: null };
+  }
+  const config = configProvider(api);
   return daemonRequest(api, config, path, options);
 }
 
@@ -136,11 +148,10 @@ export async function daemonRequest(
   }
 
   if (!response.ok && !options.quiet) {
-    // Lazy import to avoid circular dep
-    const { replaceState } = await import('./state.js');
-    replaceState(api, {
-      lastError: response.error || `Request failed for ${primaryPath}`,
-    } as Record<string, unknown>);
+    // Log error to plugin state via the api if available
+    try {
+      api.log.warn(`[legion] Request failed for ${primaryPath}: ${response.error}`);
+    } catch { /* ignore */ }
   }
 
   return response;

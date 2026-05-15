@@ -1,6 +1,3 @@
-/**
- * Props passed by Kai to every plugin component.
- */
 export type PluginComponentProps<
   TState = Record<string, unknown>,
   TConfig = Record<string, unknown>,

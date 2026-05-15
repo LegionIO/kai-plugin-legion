@@ -12,6 +12,7 @@ import type { PluginAPI, PluginConfig } from '../shared/types.js';
 import { buildDaemonHeaders, markDaemonReachable } from './daemon-client.js';
 import { joinUrl, cleanText } from './utils.js';
 import { USER_AGENT } from '../shared/constants.js';
+import { debugLog } from './debug-log.js';
 
 // ── Types (mirror Kai's StreamEvent subset) ─────────────────────────────
 
@@ -49,6 +50,8 @@ export type InferenceStreamOptions = {
   systemPrompt: string;
   reasoningEffort?: string;
   abortSignal?: AbortSignal;
+  tier?: string;
+  provider?: string;
   /**
    * Tools provided by the host (Kai). Forwarded to the daemon's
    * /api/llm/inference endpoint so the LLM can be presented with a tool
@@ -91,7 +94,7 @@ export async function* streamDaemonInference(
     return;
   }
 
-  const { getPluginConfig } = await import('./config.js');
+  const { getPluginConfig } = await import('./index.js');
   const config = getPluginConfig(cachedApi);
 
   if (!config.daemonUrl) {
@@ -112,6 +115,10 @@ export async function* streamDaemonInference(
   const requestBody: Record<string, unknown> = {
     messages: normalizedMessages,
     stream: true,
+    ...(options.modelKey ? { model: options.modelKey } : {}),
+    ...(options.provider ? { provider: options.provider } : {}),
+    ...(options.tier ? { tier: options.tier } : {}),
+    ...(options.systemPrompt ? { system: options.systemPrompt } : {}),
     ...(options.conversationId ? { conversation_id: options.conversationId } : {}),
     ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
     // Forward host-provided tool definitions to the daemon. The endpoint at
@@ -124,8 +131,25 @@ export async function* streamDaemonInference(
     ...(options.tools && options.tools.length > 0 ? { tools: options.tools } : {}),
   };
 
-  // Forward knowledge config if available
+  // Look up per-conversation routing overrides
   const pluginData = cachedApi.config.getPluginData() as Record<string, unknown>;
+  const routingMap = (pluginData.conversationRouting || {}) as Record<string, Record<string, string>>;
+  const convRouting = routingMap[options.conversationId] || {};
+
+  // Per-conversation overrides take priority over what was passed in options
+  if (convRouting.tier && !requestBody.tier) requestBody.tier = convRouting.tier;
+  if (convRouting.provider && !requestBody.provider) requestBody.provider = convRouting.provider;
+  if (convRouting.model && !requestBody.model) requestBody.model = convRouting.model;
+
+  // Global defaults as final fallback
+  const defaultTier = (pluginData.defaultTier as string) || '';
+  const defaultProvider = (pluginData.defaultProvider as string) || '';
+  const defaultModel = (pluginData.defaultModel as string) || '';
+  if (defaultTier && !requestBody.tier) requestBody.tier = defaultTier;
+  if (defaultProvider && !requestBody.provider) requestBody.provider = defaultProvider;
+  if (defaultModel && !requestBody.model) requestBody.model = defaultModel;
+
+  // Forward knowledge config if available
   if (pluginData.knowledgeRagEnabled !== undefined) {
     requestBody.rag_enabled = pluginData.knowledgeRagEnabled;
   }
@@ -135,6 +159,23 @@ export async function* streamDaemonInference(
   if (pluginData.knowledgeScope) {
     requestBody.knowledge_scope = pluginData.knowledgeScope;
   }
+
+  // ── Debug: log the full request before sending ──────────────────────────
+  debugLog('inference:request', {
+    url: inferenceUrl,
+    modelKey: options.modelKey,
+    requestBody: {
+      ...requestBody,
+      messages: (requestBody.messages as unknown[])?.map((m: unknown) => {
+        const msg = m as Record<string, unknown>;
+        // Truncate content for readability
+        const content = typeof msg.content === 'string'
+          ? msg.content.slice(0, 200) + (msg.content.length > 200 ? '…' : '')
+          : msg.content;
+        return { ...msg, content };
+      }),
+    },
+  });
 
   let response: Response;
   try {
@@ -149,14 +190,23 @@ export async function* streamDaemonInference(
     });
   } catch (error) {
     markDaemonReachable(false);
-    throw new Error(`Daemon inference request failed: ${error instanceof Error ? error.message : String(error)}`);
+    const msg = `Daemon inference request failed: ${error instanceof Error ? error.message : String(error)}`;
+    debugLog('inference:fetch-error', { error: msg });
+    throw new Error(msg);
   }
+
+  debugLog('inference:response', {
+    status: response.status,
+    ok: response.ok,
+    contentType: response.headers.get('content-type'),
+  });
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     if (response.status === 0 || response.status >= 500) {
       markDaemonReachable(false);
     }
+    debugLog('inference:http-error', { status: response.status, body: body.slice(0, 1000) });
     throw new Error(`Daemon inference HTTP ${response.status}: ${body.slice(0, 500)}`);
   }
 
@@ -164,12 +214,12 @@ export async function* streamDaemonInference(
 
   const contentType = response.headers.get('content-type') ?? '';
   if (contentType.includes('text/event-stream') && response.body) {
-    yield* consumeDaemonSSE(options.conversationId, response.body, options.abortSignal);
+    yield* consumeDaemonSSE(options.conversationId, response.body, options.modelKey, options.abortSignal);
     return;
   }
 
   // Non-streaming fallback — synchronous JSON response
-  yield* handleSyncResponse(options.conversationId, response);
+  yield* handleSyncResponse(options.conversationId, response, options.modelKey);
 }
 
 // ── Message normalisation ───────────────────────────────────────────────
@@ -371,6 +421,7 @@ function normalizeDaemonEventName(eventName: string | undefined, payload: Record
 async function* consumeDaemonSSE(
   conversationId: string,
   body: ReadableStream<Uint8Array>,
+  requestedModelKey: string | undefined,
   abortSignal?: AbortSignal,
 ): AsyncGenerator<InferenceStreamEvent> {
   const reader = body.getReader();
@@ -400,6 +451,12 @@ async function* consumeDaemonSSE(
 
       const eventName = normalizeDaemonEventName(explicitEventName, payload);
       if (!eventName) return [];
+
+      // Log every SSE event from the daemon (truncate large payloads)
+      debugLog('inference:sse-event', {
+        eventName,
+        payload: JSON.stringify(payload).slice(0, 500),
+      });
 
       if (eventName === 'text-delta' || eventName === 'text_delta' || eventName === 'delta') {
         const text = (payload.text as string) || (payload.delta as string) || '';
@@ -495,7 +552,17 @@ async function* consumeDaemonSSE(
             },
           });
         }
-        events.push({ conversationId, type: 'done', data: payload });
+        // Extract the model actually used by the daemon and stamp it into
+        // messageMeta.sourceModel so Kai's popover can display it.
+        const usedModel = cleanText(
+          (payload.model as string) ??
+          (payload.model_name as string) ??
+          (payload.modelName as string) ??
+          '',
+        );
+        const doneEvent: InferenceStreamEvent = { conversationId, type: 'done', data: payload };
+        if (usedModel) (doneEvent as Record<string, unknown>).messageMeta = { sourceModel: usedModel };
+        events.push(doneEvent);
         return events;
       }
 
@@ -561,10 +628,12 @@ async function* consumeDaemonSSE(
     }
   } catch (error) {
     if (!abortSignal?.aborted) {
+      const msg = `SSE stream error: ${error instanceof Error ? error.message : String(error)}`;
+      debugLog('inference:sse-error', { error: msg });
       yield {
         conversationId,
         type: 'error',
-        error: `SSE stream error: ${error instanceof Error ? error.message : String(error)}`,
+        error: msg,
       };
     }
   } finally {
@@ -572,13 +641,18 @@ async function* consumeDaemonSSE(
   }
 
   if (!emittedAny && !abortSignal?.aborted) {
+    debugLog('inference:sse-no-output', {});
     yield {
       conversationId,
       type: 'error',
       error: 'Daemon SSE stream ended without producing any output.',
     };
   }
-  yield { conversationId, type: 'done' };
+  // Synthetic done — stamp the requested model key so the UI indicator shows
+  // which model was used even if the daemon errored before sending its own done.
+  const syntheticDone: InferenceStreamEvent = { conversationId, type: 'done' };
+  if (requestedModelKey) (syntheticDone as Record<string, unknown>).messageMeta = { sourceModel: requestedModelKey };
+  yield syntheticDone;
 }
 
 // ── Sync response handler ───────────────────────────────────────────────
@@ -586,6 +660,7 @@ async function* consumeDaemonSSE(
 async function* handleSyncResponse(
   conversationId: string,
   response: Response,
+  requestedModelKey?: string,
 ): AsyncGenerator<InferenceStreamEvent> {
   let body: unknown = null;
   try {
@@ -601,7 +676,9 @@ async function* handleSyncResponse(
   if (!response.ok) {
     const errorMessage = data.error?.message || `Daemon request failed with HTTP ${response.status}.`;
     yield { conversationId, type: 'error', error: errorMessage };
-    yield { conversationId, type: 'done' };
+    const errDone: InferenceStreamEvent = { conversationId, type: 'done' };
+    if (requestedModelKey) (errDone as Record<string, unknown>).messageMeta = { sourceModel: requestedModelKey };
+    yield errDone;
     return;
   }
 
@@ -620,5 +697,7 @@ async function* handleSyncResponse(
       error: 'Daemon returned an unexpected payload.',
     };
   }
-  yield { conversationId, type: 'done' };
+  const syncDone: InferenceStreamEvent = { conversationId, type: 'done' };
+  if (requestedModelKey) (syncDone as Record<string, unknown>).messageMeta = { sourceModel: requestedModelKey };
+  yield syncDone;
 }

@@ -52,6 +52,18 @@ const localNodeModulesPlugin = {
   },
 };
 
+const backendOptions = {
+  entryPoints: ['./src/backend/index.ts'],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resolve(outputDir, 'backend.js'),
+  external: [],
+  sourcemap: true,
+  target: 'node18',
+  plugins: [localNodeModulesPlugin],
+};
+
 const reactGlobalPlugin = {
   name: 'react-global',
   setup(build) {
@@ -79,18 +91,6 @@ const reactGlobalPlugin = {
       loader: 'js',
     }));
   },
-};
-
-const backendOptions = {
-  entryPoints: ['./src/backend/index.ts'],
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  outfile: resolve(outputDir, 'backend.js'),
-  external: [],
-  sourcemap: true,
-  target: 'node18',
-  plugins: [localNodeModulesPlugin],
 };
 
 const frontendOptions = {
@@ -124,7 +124,7 @@ if (isWatch) {
 } else {
   await Promise.all([
     esbuild.build(backendOptions),
-    esbuild.build(frontendOptions)
+    esbuild.build(frontendOptions),
   ]).catch(() => process.exit(1));
 
   if (isDev) {
