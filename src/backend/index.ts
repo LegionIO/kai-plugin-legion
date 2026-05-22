@@ -229,7 +229,7 @@ async function checkHealth(api: PluginAPI): Promise<void> {
   const config = getPluginConfig(api);
   if (!config.enabled || !config.daemonUrl) return;
 
-  const result = await daemonJson(api, config.readyPath, { quiet: true });
+  const result = await daemonJson(api, config.readyPath, { quiet: true, timeoutMs: 5_000 });
   const isOnline = result.ok;
   const wasOffline = !isDaemonOnline();
   markDaemonReachable(isOnline);
@@ -329,6 +329,9 @@ export async function activate(api: PluginAPI): Promise<void> {
       if (typeof key === 'string') {
         api.config.setPluginData(key, value);
       }
+    }
+    if (action === 'refresh-status') {
+      await checkHealth(api);
     }
   });
 

@@ -20,6 +20,7 @@ export function SettingsView({
   onAction,
 }: PluginComponentProps<LegionState, LegionConfig>) {
   const [localUrl, setLocalUrl] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const invoke = useCallback(
     (action: string, data?: unknown) => {
@@ -31,6 +32,15 @@ export function SettingsView({
     },
     [pluginName, onAction],
   );
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await invoke('refresh-status');
+    } finally {
+      setRefreshing(false);
+    }
+  }, [invoke]);
 
   // Config comes in as props — Kai injects these directly
   const cfg = (pluginConfig ?? {}) as Record<string, unknown>;
@@ -122,10 +132,18 @@ export function SettingsView({
               {statusLabel}
             </span>
             {lastCheckedAt && (
-              <span className="text-[10px] text-muted-foreground ml-auto">
+              <span className="text-[10px] text-muted-foreground">
                 {new Date(lastCheckedAt).toLocaleTimeString()}
               </span>
             )}
+            <button
+              onClick={() => void handleRefresh()}
+              disabled={refreshing}
+              className="ml-auto text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
+              title="Refresh status"
+            >
+              {refreshing ? '↻ Checking…' : '↻ Refresh'}
+            </button>
           </div>
         </div>
       </fieldset>

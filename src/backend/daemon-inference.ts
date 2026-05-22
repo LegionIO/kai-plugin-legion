@@ -92,6 +92,9 @@ export function isDaemonOnline(): boolean {
 export async function* streamDaemonInference(
   options: InferenceStreamOptions,
 ): AsyncGenerator<InferenceStreamEvent> {
+  // ── Latency: t0 = request start ─────────────────────────────────────────
+  const t0 = Date.now();
+
   if (!cachedApi) {
     yield { conversationId: options.conversationId, type: 'error', error: 'Legion plugin API not initialized.' };
     yield { conversationId: options.conversationId, type: 'done' };
@@ -168,12 +171,16 @@ export async function* streamDaemonInference(
 
   const serializedToolBytes = JSON.stringify(toolDeclarations).length;
 
-  // ── Debug: log request metadata before sending ──────────────────────────
+  // ── Latency: t1 = just before fetch (measures setup overhead) ────────────
+  const t1 = Date.now();
+
+  // ── Debug: log request metadata + setup latency before sending ──────────
   debugLog('inference:request', {
     url: inferenceUrl,
     modelKey: options.modelKey,
     toolCount: toolDeclarations.length,
     serializedToolBytes,
+    latency: { setupMs: t1 - t0 },
     requestBody: {
       ...requestBody,
       ...(toolDeclarations.length > 0
@@ -204,14 +211,18 @@ export async function* streamDaemonInference(
   } catch (error) {
     markDaemonReachable(false);
     const msg = `Daemon inference request failed: ${error instanceof Error ? error.message : String(error)}`;
-    debugLog('inference:fetch-error', { error: msg });
+    debugLog('inference:fetch-error', { error: msg, latency: { setupMs: t1 - t0, fetchMs: Date.now() - t1, totalMs: Date.now() - t0 } });
     throw new Error(msg);
   }
+
+  // ── Latency: t2 = response headers received (TTFB) ──────────────────────
+  const t2 = Date.now();
 
   debugLog('inference:response', {
     status: response.status,
     ok: response.ok,
     contentType: response.headers.get('content-type'),
+    latency: { setupMs: t1 - t0, networkMs: t2 - t1, totalMs: t2 - t0 },
   });
 
   if (!response.ok) {
@@ -219,7 +230,7 @@ export async function* streamDaemonInference(
     if (response.status === 0 || response.status >= 500) {
       markDaemonReachable(false);
     }
-    debugLog('inference:http-error', { status: response.status, body: body.slice(0, 1000) });
+    debugLog('inference:http-error', { status: response.status, body: body.slice(0, 1000), latency: { setupMs: t1 - t0, networkMs: t2 - t1, totalMs: t2 - t0 } });
     throw new Error(`Daemon inference HTTP ${response.status}: ${body.slice(0, 500)}`);
   }
 
@@ -227,7 +238,7 @@ export async function* streamDaemonInference(
 
   const contentType = response.headers.get('content-type') ?? '';
   if (contentType.includes('text/event-stream') && response.body) {
-    yield* consumeDaemonSSE(options.conversationId, response.body, options.modelKey, options.abortSignal);
+    yield* consumeDaemonSSE(options.conversationId, response.body, options.modelKey, options.abortSignal, t0, t2);
     return;
   }
 
@@ -509,11 +520,14 @@ async function* consumeDaemonSSE(
   body: ReadableStream<Uint8Array>,
   requestedModelKey: string | undefined,
   abortSignal?: AbortSignal,
+  t0?: number,
+  t2?: number,
 ): AsyncGenerator<InferenceStreamEvent> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
   let emittedAny = false;
+  let firstTokenLogged = false;
   let currentEventName = '';
   let currentDataLines: string[] = [];
 
@@ -611,6 +625,13 @@ async function* consumeDaemonSSE(
 
       if (eventName === 'done') {
         const events: InferenceStreamEvent[] = [];
+        // ── Latency: t4 = done event received ───────────────────────────
+        const now = Date.now();
+        debugLog('inference:latency:done', {
+          totalStreamMs: t0 !== undefined ? now - t0 : undefined,
+          streamBodyMs: t2 !== undefined ? now - t2 : undefined,
+          ttfbMs: t2 !== undefined ? t2 - (t0 ?? t2) : undefined,
+        });
         // Extract pipeline enrichments from the done payload
         const enrichments = payload.enrichments ?? payload.pipeline_enrichments;
         if (enrichments && typeof enrichments === 'object' && !Array.isArray(enrichments)) {
@@ -682,6 +703,17 @@ async function* consumeDaemonSSE(
           const events = flushEvent();
           for (const event of events) {
             emittedAny = true;
+            // ── Latency: t3 = first SSE event yielded ───────────────────
+            if (!firstTokenLogged) {
+              firstTokenLogged = true;
+              const now = Date.now();
+              debugLog('inference:latency:first-token', {
+                ttfbMs: t2 !== undefined ? t2 - (t0 ?? t2) : undefined,
+                timeToFirstTokenMs: t0 !== undefined ? now - t0 : undefined,
+                streamingStartMs: t2 !== undefined ? now - t2 : undefined,
+                eventType: event.type,
+              });
+            }
             yield event;
           }
           continue;
@@ -715,7 +747,8 @@ async function* consumeDaemonSSE(
   } catch (error) {
     if (!abortSignal?.aborted) {
       const msg = `SSE stream error: ${error instanceof Error ? error.message : String(error)}`;
-      debugLog('inference:sse-error', { error: msg });
+      const now = Date.now();
+      debugLog('inference:sse-error', { error: msg, latency: { totalMs: t0 !== undefined ? now - t0 : undefined, streamBodyMs: t2 !== undefined ? now - t2 : undefined } });
       yield {
         conversationId,
         type: 'error',
@@ -727,7 +760,8 @@ async function* consumeDaemonSSE(
   }
 
   if (!emittedAny && !abortSignal?.aborted) {
-    debugLog('inference:sse-no-output', {});
+    const now = Date.now();
+    debugLog('inference:sse-no-output', { latency: { totalMs: t0 !== undefined ? now - t0 : undefined, streamBodyMs: t2 !== undefined ? now - t2 : undefined } });
     yield {
       conversationId,
       type: 'error',
