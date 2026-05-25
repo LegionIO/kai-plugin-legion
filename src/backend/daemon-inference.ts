@@ -81,6 +81,42 @@ export function setInferenceApi(api: PluginAPI | null): void {
   cachedApi = api;
 }
 
+// ── Working directory resolution ───────────────────────────────────────
+
+function resolveWorkingDirectory(api: PluginAPI): string | null {
+  try {
+    const appConfig = api.config.get() as Record<string, unknown> | null;
+    if (!appConfig) return null;
+
+    const ui = appConfig.ui as Record<string, unknown> | undefined;
+    if (!ui) return null;
+
+    const activeId = ui.activeWorkspaceId as string | null;
+    const workspaces = ui.workspaces as Array<{ id: string; directory: string }> | undefined;
+    if (!activeId || !workspaces?.length) return null;
+
+    const active = workspaces.find((w) => w.id === activeId);
+    return active?.directory || null;
+  } catch {
+    return null;
+  }
+}
+
+function buildSystemPromptWithCwd(api: PluginAPI, basePrompt: string | undefined): string {
+  const cwd = resolveWorkingDirectory(api);
+  if (!cwd) return basePrompt || '';
+
+  const parts: string[] = [];
+  if (basePrompt) parts.push(basePrompt);
+  parts.push(`Current working directory: ${cwd}`);
+  parts.push(
+    'IMPORTANT: Use this directory as the default base path for ALL file operations and shell commands. '
+    + 'When executing tools that accept a path or cwd parameter, use this directory. '
+    + 'NEVER search from / or ~ to locate the project — the working directory is already set.',
+  );
+  return parts.join('\n\n');
+}
+
 // ── Public API ──────────────────────────────────────────────────────────
 
 /**
@@ -154,12 +190,15 @@ export async function* streamDaemonInference(
   if (defaultModel && !routingDefaults.model) routingDefaults.model = defaultModel;
 
   const legionOptions: Record<string, unknown> = {};
-  if (options.systemPrompt) legionOptions.system = options.systemPrompt;
+  const systemPrompt = buildSystemPromptWithCwd(cachedApi, options.systemPrompt);
+  if (systemPrompt) legionOptions.system = systemPrompt;
   if (options.conversationId) legionOptions.conversation_id = options.conversationId;
   if (options.reasoningEffort) legionOptions.reasoning_effort = options.reasoningEffort;
   legionOptions.include_thinking = true;
   legionOptions.client_tool_passthrough = true;
   legionOptions.request_id = `kai-${options.conversationId}-${Date.now()}`;
+  const workingDirectory = resolveWorkingDirectory(cachedApi);
+  if (workingDirectory) legionOptions.cwd = workingDirectory;
 
   // Forward knowledge config if available
   if (pluginData.knowledgeRagEnabled !== undefined) {
