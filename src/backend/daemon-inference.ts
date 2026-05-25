@@ -261,11 +261,16 @@ export async function* streamDaemonInference(
     }
 
     let donePayload: Record<string, unknown> | null = null;
+    let emittedText = false;
     for await (const event of consumeDaemonSSE(options.conversationId, response.body, options.modelKey, options.abortSignal, t0, t2, false)) {
       if (event.type === 'done') {
         donePayload = isRecord(event.data) ? event.data : {};
         break;
       }
+      if (event.type === 'error' && !emittedText) {
+        throw new Error(event.error ?? 'Daemon stream error before response');
+      }
+      if (event.type === 'text-delta') emittedText = true;
       yield event;
     }
 
@@ -542,18 +547,22 @@ async function* executeClientToolCall(
   }
 
   try {
+    const progressEvents: InferenceStreamEvent[] = [];
     const result = await executable.execute(args, {
       toolCallId: toolCall.id,
       conversationId,
       abortSignal,
       onProgress: (progress) => {
-        debugLog('inference:tool-progress', {
+        progressEvents.push({
+          conversationId,
+          type: 'tool-progress',
           toolCallId: toolCall.id,
           toolName,
-          progress: JSON.stringify(progress).slice(0, 500),
+          data: progress,
         });
       },
     });
+    for (const pe of progressEvents) yield pe;
     const finishedAt = new Date().toISOString();
     yield {
       conversationId,
