@@ -45,6 +45,10 @@ export function markDaemonReachable(reachable: boolean): void {
   daemonLastCheckAt = Date.now();
 }
 
+export function isDaemonReachable(): boolean {
+  return daemonReachable;
+}
+
 /**
  * Returns `true` when the daemon is known to be unreachable and the
  * re-check interval has not yet elapsed.  Health / ready endpoints are

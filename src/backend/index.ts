@@ -10,7 +10,7 @@
 import type { PluginAPI, PluginConfig } from '../shared/types.js';
 import { HEALTH_POLL_MS, BANNER_ID } from '../shared/constants.js';
 import { isDaemonOnline, streamDaemonInference, setInferenceApi } from './daemon-inference.js';
-import { daemonJson, markDaemonReachable, setConfigProvider } from './daemon-client.js';
+import { daemonJson, markDaemonReachable, isDaemonReachable, setConfigProvider } from './daemon-client.js';
 import { registerTool } from './tool.js';
 
 // ── Module state ─────────────────────────────────────────────────────────────
@@ -216,7 +216,7 @@ function ensureRuntimeRegistration(api: PluginAPI, config: PluginConfig): void {
       id: 'legion',
       name: 'LegionIO',
       description: 'LegionIO daemon runtime. Routes all inference through the local LegionIO daemon with automatic model selection, memory, and tool support. Falls back to Kai\'s built-in pipeline when the daemon is offline.',
-      isAvailable: () => isDaemonOnline(),
+      isAvailable: () => isDaemonReachable(),
     });
   } else {
     api.agent.unregisterRuntime('legion');
@@ -231,7 +231,7 @@ function ensureBackendRegistration(api: PluginAPI, config: PluginConfig): void {
   if (shouldRegister && !backendRegistered) {
     api.agent.registerInferenceProvider({
       name: 'LegionIO',
-      isAvailable: () => isDaemonOnline(),
+      isAvailable: () => isDaemonReachable(),
       stream: (options: Parameters<typeof streamDaemonInference>[0]) =>
         streamDaemonInference(options),
     });
@@ -269,10 +269,9 @@ async function checkHealth(api: PluginAPI): Promise<void> {
   // Sync model catalog when daemon comes online (or on first online check)
   if (isOnline && wasOffline) {
     void syncModelCatalog(api);
-    // Set Legion as the active runtime so all inference routes through the
-    // daemon out of the box. The daemon handles model routing internally,
-    // so this is safe even for models from other providers.
-    api.config.set('agent.runtime', 'legion');
+    if (config.apiEndpoint === 'native') {
+      api.config.set('agent.runtime', 'legion');
+    }
   }
 }
 
