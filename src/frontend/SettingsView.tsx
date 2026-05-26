@@ -5,6 +5,7 @@ import { getHostBridge } from './utils';
 type LegionConfig = {
   enabled?: boolean;
   daemonUrl?: string;
+  apiEndpoint?: 'native' | 'openai';
 };
 
 type LegionState = {
@@ -46,6 +47,7 @@ export function SettingsView({
   const cfg = (pluginConfig ?? {}) as Record<string, unknown>;
   const enabled: boolean = cfg.enabled !== false;
   const daemonUrl: string = (cfg.daemonUrl as string) || 'http://127.0.0.1:4567';
+  const apiEndpoint: string = (cfg.apiEndpoint as string) || 'native';
 
   // State comes in as props — published by backend via api.state.replace()
   const status = pluginState?.status ?? 'unknown';
@@ -122,6 +124,27 @@ export function SettingsView({
               setLocalUrl(null);
             }}
           />
+        </div>
+
+        {/* API Endpoint */}
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">
+            API Endpoint
+          </label>
+          <select
+            className="w-full rounded-xl border border-border/70 bg-card/80 px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-ring outline-none"
+            value={apiEndpoint}
+            onChange={(e) => {
+              void invoke('set-config', { key: 'apiEndpoint', value: e.target.value });
+            }}
+          >
+            <option value="native">/api/llm/inference (Native pipeline)</option>
+            <option value="openai">/v1/chat/completions (OpenAI-compatible)</option>
+          </select>
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Native uses the full Legion pipeline with thinking, enrichments, and tool passthrough.
+            OpenAI-compatible uses the standard format via Kai's Mastra runtime.
+          </p>
         </div>
 
         {/* Status card */}
