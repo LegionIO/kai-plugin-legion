@@ -149,13 +149,14 @@ async function syncModelCatalog(api: PluginAPI): Promise<void> {
     // via the AI SDK's openai-compatible adapter — tools, maxSteps, retries all
     // work natively without a custom inference provider bypass.
     //
-    // Extra headers activate full pipeline features on the daemon side:
-    // - X-Legion-Client-Tool-Passthrough: tells daemon to return tool calls for
-    //   client execution rather than executing server-side
-    // - X-Legion-Include-Reasoning: enables reasoning/thinking token streaming
+    // Extra headers activate full pipeline features on the daemon side.
+    // Headers with {placeholder} syntax are resolved per-request by Kai's
+    // streaming infrastructure (e.g. {conversationId} → actual conversation ID).
     const pluginData = (api.config.getPluginData() || {}) as Record<string, unknown>;
     const extraHeaders: Record<string, string> = {
       'X-Legion-Client-Tool-Passthrough': 'true',
+      'X-Legion-Conversation-Id': '{conversationId}',
+      'X-Legion-Cwd': '{cwd}',
     };
 
     // Forward per-conversation routing defaults if configured
