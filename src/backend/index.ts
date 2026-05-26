@@ -269,10 +269,9 @@ async function checkHealth(api: PluginAPI): Promise<void> {
   // Sync model catalog when daemon comes online (or on first online check)
   if (isOnline && wasOffline) {
     void syncModelCatalog(api);
-    // Set Legion as the active runtime so all inference routes through the
-    // daemon out of the box. The daemon handles model routing internally,
-    // so this is safe even for models from other providers.
-    api.config.set('agent.runtime', 'legion');
+    if (config.apiEndpoint === 'native') {
+      api.config.set('agent.runtime', 'legion');
+    }
   }
 }
 
