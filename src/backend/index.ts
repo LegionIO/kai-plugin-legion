@@ -236,12 +236,14 @@ function ensureBackendRegistration(api: PluginAPI, config: PluginConfig): void {
         streamDaemonInference(options),
     });
     backendRegistered = true;
+    api.config.set('agent.runtime', 'legion');
     return;
   }
 
   if (!shouldRegister && backendRegistered) {
     api.agent.unregisterInferenceProvider();
     backendRegistered = false;
+    api.config.set('agent.runtime', 'auto');
   }
 }
 
