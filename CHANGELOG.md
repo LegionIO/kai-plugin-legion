@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Health poll no longer overrides endpoint mode — `checkHealth` was unconditionally setting `agent.runtime='legion'` on daemon online transition, forcing native mode even when OpenAI-compatible was selected
+
 ## [2.1.2] - 2026-05-26
 
 ### Fixed
