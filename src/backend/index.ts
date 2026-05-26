@@ -216,7 +216,7 @@ function ensureRuntimeRegistration(api: PluginAPI, config: PluginConfig): void {
       id: 'legion',
       name: 'LegionIO',
       description: 'LegionIO daemon runtime. Routes all inference through the local LegionIO daemon with automatic model selection, memory, and tool support. Falls back to Kai\'s built-in pipeline when the daemon is offline.',
-      isAvailable: () => isDaemonOnline(),
+      isAvailable: () => true,
     });
   } else {
     api.agent.unregisterRuntime('legion');
