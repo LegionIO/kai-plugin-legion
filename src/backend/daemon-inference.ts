@@ -33,9 +33,9 @@ export type InferenceStreamEvent = {
 
 /**
  * Minimum structural shape of a tool definition forwarded by the host.
- * Kept loose because the plugin only forwards tools to the daemon — it
- * does not introspect or execute them. Mirrors the host's `ToolDefinition`
- * without taking a hard type dependency on Kai internals.
+ * Kept loose because the plugin forwards tools to the daemon and executes
+ * returned client-passthrough calls without taking a hard type dependency on
+ * Kai internals.
  */
 export type InferenceTool = {
   name: string;
@@ -43,8 +43,16 @@ export type InferenceTool = {
   inputSchema?: unknown;
   parameters?: unknown;
   input_schema?: unknown;
+  execute?: (input: unknown, context: {
+    toolCallId: string;
+    conversationId?: string;
+    abortSignal?: AbortSignal;
+    onProgress?: (event: unknown) => void;
+  }) => Promise<unknown>;
   source?: string;
   sourceId?: string;
+  originalName?: string;
+  aliases?: string[];
 };
 
 export type InferenceStreamOptions = {
@@ -71,6 +79,42 @@ let cachedApi: PluginAPI | null = null;
 
 export function setInferenceApi(api: PluginAPI | null): void {
   cachedApi = api;
+}
+
+// ── Working directory resolution ───────────────────────────────────────
+
+function resolveWorkingDirectory(api: PluginAPI): string | null {
+  try {
+    const appConfig = api.config.get() as Record<string, unknown> | null;
+    if (!appConfig) return null;
+
+    const ui = appConfig.ui as Record<string, unknown> | undefined;
+    if (!ui) return null;
+
+    const activeId = ui.activeWorkspaceId as string | null;
+    const workspaces = ui.workspaces as Array<{ id: string; directory: string }> | undefined;
+    if (!activeId || !workspaces?.length) return null;
+
+    const active = workspaces.find((w) => w.id === activeId);
+    return active?.directory || null;
+  } catch {
+    return null;
+  }
+}
+
+function buildSystemPromptWithCwd(api: PluginAPI, basePrompt: string | undefined): string {
+  const cwd = resolveWorkingDirectory(api);
+  if (!cwd) return basePrompt || '';
+
+  const parts: string[] = [];
+  if (basePrompt) parts.push(basePrompt);
+  parts.push(`Current working directory: ${cwd}`);
+  parts.push(
+    'IMPORTANT: Use this directory as the default base path for ALL file operations and shell commands. '
+    + 'When executing tools that accept a path or cwd parameter, use this directory. '
+    + 'NEVER search from / or ~ to locate the project — the working directory is already set.',
+  );
+  return parts.join('\n\n');
 }
 
 // ── Public API ──────────────────────────────────────────────────────────
@@ -120,130 +164,193 @@ export async function* streamDaemonInference(
   }
 
   const toolDeclarations = serializeToolsForDaemon(options.tools);
-
-  const requestBody: Record<string, unknown> = {
-    messages: normalizedMessages,
-    stream: true,
-    ...(options.modelKey ? { model: options.modelKey } : {}),
-    ...(options.provider ? { provider: options.provider } : {}),
-    ...(options.tier ? { tier: options.tier } : {}),
-    ...(options.systemPrompt ? { system: options.systemPrompt } : {}),
-    ...(options.conversationId ? { conversation_id: options.conversationId } : {}),
-    ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
-    // Forward host-provided tool definitions to the daemon. The endpoint at
-    // legion-llm/lib/legion/llm/api/native/inference.rb:22 reads `body[:tools]`
-    // and passes them through to the pipeline at line 95 (`tools: tool_declarations`).
-    // The daemon expects `{ name, description, parameters | input_schema }` per
-    // tool — see `build_client_tool_class` at helpers.rb:296. Assistant
-    // messages with `tool_calls` and `role: 'tool'` messages with `tool_call_id`
-    // are accepted by the lex-llm adapter at lex_llm_adapter.rb:113-114.
-    ...(toolDeclarations.length > 0 ? { tools: toolDeclarations } : {}),
-  };
+  const conversationMessages = [...normalizedMessages];
 
   // Look up per-conversation routing overrides
   const pluginData = cachedApi.config.getPluginData() as Record<string, unknown>;
   const routingMap = (pluginData.conversationRouting || {}) as Record<string, Record<string, string>>;
   const convRouting = routingMap[options.conversationId] || {};
 
+  const routingDefaults: Record<string, unknown> = {};
+  if (options.modelKey) routingDefaults.model = options.modelKey;
+  if (options.provider) routingDefaults.provider = options.provider;
+  if (options.tier) routingDefaults.tier = options.tier;
+
   // Per-conversation overrides take priority over what was passed in options
-  if (convRouting.tier && !requestBody.tier) requestBody.tier = convRouting.tier;
-  if (convRouting.provider && !requestBody.provider) requestBody.provider = convRouting.provider;
-  if (convRouting.model && !requestBody.model) requestBody.model = convRouting.model;
+  if (convRouting.tier && !routingDefaults.tier) routingDefaults.tier = convRouting.tier;
+  if (convRouting.provider && !routingDefaults.provider) routingDefaults.provider = convRouting.provider;
+  if (convRouting.model && !routingDefaults.model) routingDefaults.model = convRouting.model;
 
   // Global defaults as final fallback
   const defaultTier = (pluginData.defaultTier as string) || '';
   const defaultProvider = (pluginData.defaultProvider as string) || '';
   const defaultModel = (pluginData.defaultModel as string) || '';
-  if (defaultTier && !requestBody.tier) requestBody.tier = defaultTier;
-  if (defaultProvider && !requestBody.provider) requestBody.provider = defaultProvider;
-  if (defaultModel && !requestBody.model) requestBody.model = defaultModel;
+  if (defaultTier && !routingDefaults.tier) routingDefaults.tier = defaultTier;
+  if (defaultProvider && !routingDefaults.provider) routingDefaults.provider = defaultProvider;
+  if (defaultModel && !routingDefaults.model) routingDefaults.model = defaultModel;
+
+  const legionOptions: Record<string, unknown> = {};
+  const systemPrompt = buildSystemPromptWithCwd(cachedApi, options.systemPrompt);
+  if (systemPrompt) legionOptions.system = systemPrompt;
+  if (options.conversationId) legionOptions.conversation_id = options.conversationId;
+  if (options.reasoningEffort) legionOptions.reasoning_effort = options.reasoningEffort;
+  legionOptions.include_thinking = true;
+  legionOptions.client_tool_passthrough = true;
+  legionOptions.request_id = `kai-${options.conversationId}-${Date.now()}`;
+  const workingDirectory = resolveWorkingDirectory(cachedApi);
+  if (workingDirectory) legionOptions.cwd = workingDirectory;
 
   // Forward knowledge config if available
   if (pluginData.knowledgeRagEnabled !== undefined) {
-    requestBody.rag_enabled = pluginData.knowledgeRagEnabled;
+    legionOptions.rag_enabled = pluginData.knowledgeRagEnabled;
   }
   if (pluginData.knowledgeCaptureEnabled !== undefined) {
-    requestBody.capture_enabled = pluginData.knowledgeCaptureEnabled;
+    legionOptions.capture_enabled = pluginData.knowledgeCaptureEnabled;
   }
   if (pluginData.knowledgeScope) {
-    requestBody.knowledge_scope = pluginData.knowledgeScope;
+    legionOptions.knowledge_scope = pluginData.knowledgeScope;
   }
 
   const serializedToolBytes = JSON.stringify(toolDeclarations).length;
+  const maxToolRounds = 12;
 
-  // ── Latency: t1 = just before fetch (measures setup overhead) ────────────
-  const t1 = Date.now();
+  for (let round = 0; round <= maxToolRounds; round += 1) {
+    const requestBody: Record<string, unknown> = {
+      messages: conversationMessages,
+      stream: true,
+      ...routingDefaults,
+      ...legionOptions,
+      // Forward host-provided tool definitions to the daemon. The daemon can
+      // decide which tool to call; this plugin executes returned client tool
+      // calls and feeds their results back through the next inference round.
+      ...(toolDeclarations.length > 0 ? { tools: toolDeclarations } : {}),
+    };
 
-  // ── Debug: log request metadata + setup latency before sending ──────────
-  debugLog('inference:request', {
-    url: inferenceUrl,
-    modelKey: options.modelKey,
-    toolCount: toolDeclarations.length,
-    serializedToolBytes,
-    latency: { setupMs: t1 - t0 },
-    requestBody: {
-      ...requestBody,
-      ...(toolDeclarations.length > 0
-        ? { tools: `[${toolDeclarations.length} compact tool schemas, ${serializedToolBytes} bytes]` }
-        : {}),
-      messages: (requestBody.messages as unknown[])?.map((m: unknown) => {
-        const msg = m as Record<string, unknown>;
-        // Truncate content for readability
-        const content = typeof msg.content === 'string'
-          ? msg.content.slice(0, 200) + (msg.content.length > 200 ? '…' : '')
-          : msg.content;
-        return { ...msg, content };
-      }),
-    },
-  });
+    // ── Latency: t1 = just before fetch (measures setup overhead) ────────────
+    const t1 = Date.now();
 
-  let response: Response;
-  try {
-    response = await cachedApi.fetch(inferenceUrl, {
-      method: 'POST',
-      headers: buildDaemonHeaders(config, {
-        'content-type': 'application/json',
-        'accept': 'text/event-stream',
-      }),
-      body: JSON.stringify(requestBody),
-      signal: options.abortSignal,
+    // ── Debug: log request metadata + setup latency before sending ──────────
+    debugLog('inference:request', {
+      url: inferenceUrl,
+      modelKey: options.modelKey,
+      toolCount: toolDeclarations.length,
+      serializedToolBytes,
+      round,
+      latency: { setupMs: t1 - t0 },
+      requestBody: {
+        ...requestBody,
+        ...(toolDeclarations.length > 0
+          ? { tools: `[${toolDeclarations.length} compact tool schemas, ${serializedToolBytes} bytes]` }
+          : {}),
+        messages: (requestBody.messages as unknown[])?.map((m: unknown) => {
+          const msg = m as Record<string, unknown>;
+          // Truncate content for readability
+          const content = typeof msg.content === 'string'
+            ? msg.content.slice(0, 200) + (msg.content.length > 200 ? '…' : '')
+            : msg.content;
+          return { ...msg, content };
+        }),
+      },
     });
-  } catch (error) {
-    markDaemonReachable(false);
-    const msg = `Daemon inference request failed: ${error instanceof Error ? error.message : String(error)}`;
-    debugLog('inference:fetch-error', { error: msg, latency: { setupMs: t1 - t0, fetchMs: Date.now() - t1, totalMs: Date.now() - t0 } });
-    throw new Error(msg);
-  }
 
-  // ── Latency: t2 = response headers received (TTFB) ──────────────────────
-  const t2 = Date.now();
-
-  debugLog('inference:response', {
-    status: response.status,
-    ok: response.ok,
-    contentType: response.headers.get('content-type'),
-    latency: { setupMs: t1 - t0, networkMs: t2 - t1, totalMs: t2 - t0 },
-  });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    if (response.status === 0 || response.status >= 500) {
+    let response: Response;
+    try {
+      response = await cachedApi.fetch(inferenceUrl, {
+        method: 'POST',
+        headers: buildDaemonHeaders(config, {
+          'content-type': 'application/json',
+          'accept': 'text/event-stream',
+        }),
+        body: JSON.stringify(requestBody),
+        signal: options.abortSignal,
+      });
+    } catch (error) {
       markDaemonReachable(false);
+      const msg = `Daemon inference request failed: ${error instanceof Error ? error.message : String(error)}`;
+      debugLog('inference:fetch-error', { error: msg, round, latency: { setupMs: t1 - t0, fetchMs: Date.now() - t1, totalMs: Date.now() - t0 } });
+      throw new Error(msg);
     }
-    debugLog('inference:http-error', { status: response.status, body: body.slice(0, 1000), latency: { setupMs: t1 - t0, networkMs: t2 - t1, totalMs: t2 - t0 } });
-    throw new Error(`Daemon inference HTTP ${response.status}: ${body.slice(0, 500)}`);
+
+    // ── Latency: t2 = response headers received (TTFB) ──────────────────────
+    const t2 = Date.now();
+
+    debugLog('inference:response', {
+      status: response.status,
+      ok: response.ok,
+      contentType: response.headers.get('content-type'),
+      round,
+      latency: { setupMs: t1 - t0, networkMs: t2 - t1, totalMs: t2 - t0 },
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      if (response.status === 0 || response.status >= 500) {
+        markDaemonReachable(false);
+      }
+      debugLog('inference:http-error', { status: response.status, body: body.slice(0, 1000), round, latency: { setupMs: t1 - t0, networkMs: t2 - t1, totalMs: t2 - t0 } });
+      throw new Error(`Daemon inference HTTP ${response.status}: ${body.slice(0, 500)}`);
+    }
+
+    markDaemonReachable(true);
+
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.includes('text/event-stream') || !response.body) {
+      yield* handleSyncResponse(options.conversationId, response, options.modelKey);
+      return;
+    }
+
+    let donePayload: Record<string, unknown> | null = null;
+    let emittedText = false;
+    for await (const event of consumeDaemonSSE(options.conversationId, response.body, options.modelKey, options.abortSignal, t0, t2, false)) {
+      if (event.type === 'done') {
+        donePayload = isRecord(event.data) ? event.data : {};
+        break;
+      }
+      if (event.type === 'error' && !emittedText) {
+        throw new Error(event.error ?? 'Daemon stream error before response');
+      }
+      if (event.type === 'text-delta') emittedText = true;
+      yield event;
+    }
+
+    const toolCalls = normalizeOpenAIToolCalls(donePayload?.tool_calls);
+    const requiresToolResult = donePayload?.requires_tool_result === true || donePayload?.stop_reason === 'tool_use';
+    if (!requiresToolResult || toolCalls.length === 0) {
+      const finalDone: InferenceStreamEvent = { conversationId: options.conversationId, type: 'done', data: donePayload ?? {} };
+      const sourceModel = cleanText((donePayload?.model as string) ?? (donePayload?.model_name as string) ?? (donePayload?.modelName as string) ?? '');
+      if (sourceModel) (finalDone as Record<string, unknown>).messageMeta = { sourceModel };
+      yield finalDone;
+      return;
+    }
+
+    if (round >= maxToolRounds) {
+      yield {
+        conversationId: options.conversationId,
+        type: 'error',
+        error: `Legion inference exceeded ${maxToolRounds} client tool callback rounds.`,
+      };
+      yield { conversationId: options.conversationId, type: 'done', data: donePayload };
+      return;
+    }
+
+    conversationMessages.push({
+      role: 'assistant',
+      content: typeof donePayload?.content === 'string' && donePayload.content.length > 0 ? donePayload.content : ' ',
+      tool_calls: toolCalls,
+    });
+
+    for (const toolCall of toolCalls) {
+      const toolMessage = yield* executeClientToolCall(options.conversationId, toolCall, options.tools, options.abortSignal);
+      conversationMessages.push(toolMessage);
+    }
   }
 
-  markDaemonReachable(true);
-
-  const contentType = response.headers.get('content-type') ?? '';
-  if (contentType.includes('text/event-stream') && response.body) {
-    yield* consumeDaemonSSE(options.conversationId, response.body, options.modelKey, options.abortSignal, t0, t2);
-    return;
-  }
-
-  // Non-streaming fallback — synchronous JSON response
-  yield* handleSyncResponse(options.conversationId, response, options.modelKey);
+  yield {
+    conversationId: options.conversationId,
+    type: 'error',
+    error: `Legion inference exceeded ${maxToolRounds} client tool callback rounds.`,
+  };
+  yield { conversationId: options.conversationId, type: 'done' };
 }
 
 // ── Message normalisation ───────────────────────────────────────────────
@@ -336,8 +443,8 @@ function serializeToolsForDaemon(tools: InferenceTool[] | undefined): DaemonTool
  */
 type NormalizedToolCall = {
   id: string;
-  type: 'function';
-  function: { name: string; arguments: string };
+  name: string;
+  arguments: string;
 };
 
 type NormalizedMessage = {
@@ -383,19 +490,162 @@ function stringifyToolResult(result: unknown): string {
   return String(result);
 }
 
+function normalizeOpenAIToolCalls(value: unknown): NormalizedToolCall[] {
+  if (!Array.isArray(value)) return [];
+
+  const calls: NormalizedToolCall[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+
+    const fn = isRecord(item.function) ? item.function : {};
+    const id = typeof item.id === 'string' && item.id.trim().length > 0
+      ? item.id
+      : '';
+    const name = typeof fn.name === 'string' && fn.name.trim().length > 0
+      ? fn.name
+      : typeof item.name === 'string' && item.name.trim().length > 0
+        ? item.name
+        : '';
+
+    if (!id || !name) continue;
+
+    let argString = '{}';
+    if (typeof fn.arguments === 'string') {
+      argString = fn.arguments;
+    } else if (typeof item.arguments === 'string') {
+      argString = item.arguments;
+    } else {
+      try {
+        argString = JSON.stringify(item.arguments ?? {});
+      } catch {
+        argString = '{}';
+      }
+    }
+
+    calls.push({ id, name, arguments: argString });
+  }
+
+  return calls;
+}
+
+function parseToolArguments(argumentsJson: string): unknown {
+  if (!argumentsJson || argumentsJson.trim().length === 0) return {};
+  try {
+    return JSON.parse(argumentsJson) as unknown;
+  } catch {
+    return {};
+  }
+}
+
+function findExecutableTool(tools: InferenceTool[] | undefined, name: string): InferenceTool | undefined {
+  return tools?.find((tool) => (
+    tool.name === name
+    || tool.originalName === name
+    || tool.aliases?.includes(name)
+  ));
+}
+
+async function* executeClientToolCall(
+  conversationId: string,
+  toolCall: NormalizedToolCall,
+  tools: InferenceTool[] | undefined,
+  abortSignal?: AbortSignal,
+): AsyncGenerator<InferenceStreamEvent, NormalizedMessage, unknown> {
+  const toolName = toolCall.name;
+  const args = parseToolArguments(toolCall.arguments);
+  const startedAt = new Date().toISOString();
+
+  yield {
+    conversationId,
+    type: 'tool-call',
+    toolCallId: toolCall.id,
+    toolName,
+    args,
+    startedAt,
+  };
+
+  const executable = findExecutableTool(tools, toolName);
+  if (!executable?.execute) {
+    const result = { isError: true, error: `Tool ${toolName} is not executable by Kai.` };
+    const finishedAt = new Date().toISOString();
+    yield {
+      conversationId,
+      type: 'tool-result',
+      toolCallId: toolCall.id,
+      toolName,
+      result,
+      startedAt,
+      finishedAt,
+    };
+    return {
+      role: 'tool',
+      tool_call_id: toolCall.id,
+      tool_name: toolName,
+      content: stringifyToolResult(result),
+    };
+  }
+
+  try {
+    const progressEvents: InferenceStreamEvent[] = [];
+    const result = await executable.execute(args, {
+      toolCallId: toolCall.id,
+      conversationId,
+      abortSignal,
+      onProgress: (progress) => {
+        progressEvents.push({
+          conversationId,
+          type: 'tool-progress',
+          toolCallId: toolCall.id,
+          toolName,
+          data: progress,
+        });
+      },
+    });
+    for (const pe of progressEvents) yield pe;
+    const finishedAt = new Date().toISOString();
+    yield {
+      conversationId,
+      type: 'tool-result',
+      toolCallId: toolCall.id,
+      toolName,
+      result,
+      startedAt,
+      finishedAt,
+    };
+    return {
+      role: 'tool',
+      tool_call_id: toolCall.id,
+      tool_name: toolName,
+      content: stringifyToolResult(result),
+    };
+  } catch (error) {
+    const result = { isError: true, error: error instanceof Error ? error.message : String(error) };
+    const finishedAt = new Date().toISOString();
+    yield {
+      conversationId,
+      type: 'tool-result',
+      toolCallId: toolCall.id,
+      toolName,
+      result,
+      startedAt,
+      finishedAt,
+    };
+    return {
+      role: 'tool',
+      tool_call_id: toolCall.id,
+      tool_name: toolName,
+      content: stringifyToolResult(result),
+    };
+  }
+}
+
 /**
- * Translate Kai's AI SDK V4 CoreMessage shape into the daemon's OpenAI-style
- * shape. Preserves multi-turn tool history end-to-end:
+ * Translate Kai's AI SDK V4 CoreMessage shape into the daemon's native shape.
  *
  *   IN  (V4):  assistant content [{type:'text'}, {type:'tool-call', toolCallId, toolName, args}]
  *              followed by tool role with content [{type:'tool-result', toolCallId, toolName, result}]
- *   OUT (lex): {role:'assistant', content:'<text>', tool_calls:[{id,type:'function',function:{name,arguments:JSON}}]}
+ *   OUT (lex): {role:'assistant', content:'<text>', tool_calls:[{id, name, arguments}]}
  *              {role:'tool', tool_call_id, tool_name, content:'<stringified result>'}
- *
- * The daemon's lex_llm_adapter:101-117 reads `tool_calls` and `tool_call_id` as
- * top-level fields and forwards them to the underlying provider for native
- * tool-call translation. See also legion-llm/spec/routes_inference_spec.rb for
- * the canonical message shape expected at /api/llm/inference.
  */
 function normalizeMessages(messages: Array<{ role: string; content: unknown }>): NormalizedMessage[] {
   const out: NormalizedMessage[] = [];
@@ -466,7 +716,7 @@ function normalizeMessages(messages: Array<{ role: string; content: unknown }>):
           } catch {
             argString = '{}';
           }
-          toolCalls.push({ id, type: 'function', function: { name, arguments: argString } });
+          toolCalls.push({ id, name, arguments: argString });
         }
         // image/file/other parts on assistant messages are dropped — the
         // daemon's content field is text-only.
@@ -522,6 +772,7 @@ async function* consumeDaemonSSE(
   abortSignal?: AbortSignal,
   t0?: number,
   t2?: number,
+  emitSyntheticDone = true,
 ): AsyncGenerator<InferenceStreamEvent> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -561,6 +812,11 @@ async function* consumeDaemonSSE(
       if (eventName === 'text-delta' || eventName === 'text_delta' || eventName === 'delta') {
         const text = (payload.text as string) || (payload.delta as string) || '';
         return text ? [{ conversationId, type: 'text-delta', text }] : [];
+      }
+
+      if (eventName === 'thinking-delta' || eventName === 'thinking_delta') {
+        const delta = (payload.delta as string) || (payload.text as string) || '';
+        return delta ? [{ conversationId, type: 'observer-message', text: delta }] : [];
       }
 
       if (eventName === 'tool-call' || eventName === 'tool_call') {
@@ -768,11 +1024,13 @@ async function* consumeDaemonSSE(
       error: 'Daemon SSE stream ended without producing any output.',
     };
   }
-  // Synthetic done — stamp the requested model key so the UI indicator shows
-  // which model was used even if the daemon errored before sending its own done.
-  const syntheticDone: InferenceStreamEvent = { conversationId, type: 'done' };
-  if (requestedModelKey) (syntheticDone as Record<string, unknown>).messageMeta = { sourceModel: requestedModelKey };
-  yield syntheticDone;
+  if (emitSyntheticDone) {
+    // Synthetic done — stamp the requested model key so the UI indicator shows
+    // which model was used even if the daemon errored before sending its own done.
+    const syntheticDone: InferenceStreamEvent = { conversationId, type: 'done' };
+    if (requestedModelKey) (syntheticDone as Record<string, unknown>).messageMeta = { sourceModel: requestedModelKey };
+    yield syntheticDone;
+  }
 }
 
 // ── Sync response handler ───────────────────────────────────────────────

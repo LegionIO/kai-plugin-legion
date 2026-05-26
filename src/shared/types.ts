@@ -12,6 +12,7 @@ export type PluginAPI = any;
 export type PluginConfig = {
   enabled: boolean;
   daemonUrl: string;
+  apiEndpoint: 'native' | 'openai';
   // Internal defaults — not user-configurable, not in configSchema
   apiKey: string;
   configDir: string;
