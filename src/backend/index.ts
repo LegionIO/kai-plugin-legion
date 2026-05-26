@@ -9,7 +9,7 @@
 
 import type { PluginAPI, PluginConfig } from '../shared/types.js';
 import { HEALTH_POLL_MS, BANNER_ID } from '../shared/constants.js';
-import { isDaemonOnline, streamDaemonInference, setInferenceApi } from './daemon-inference.js';
+import { isDaemonOnline, setInferenceApi } from './daemon-inference.js';
 import { daemonJson, markDaemonReachable, setConfigProvider } from './daemon-client.js';
 import { registerTool } from './tool.js';
 
@@ -17,7 +17,6 @@ import { registerTool } from './tool.js';
 
 let currentApi: PluginAPI | null = null;
 let healthPollTimer: ReturnType<typeof setInterval> | null = null;
-let backendRegistered = false;
 
 // ── Config helper ─────────────────────────────────────────────────────────────
 
@@ -83,10 +82,6 @@ function isDaemonChatModel(m: DaemonModel): boolean {
 }
 
 function mapDaemonModelToKaiCatalog(m: DaemonModel): Record<string, unknown> {
-  const families = (m.model_families ?? []).map((f) => f.toLowerCase());
-  const isAnthropic = families.includes('anthropic') || m.id.startsWith('claude') || m.id.startsWith('anthropic.');
-  const provider = isAnthropic ? 'legionio_anthropic' : 'legionio';
-
   const displayName = m.id
     .replace(/[-_]/g, ' ')
     .replace(/\b(\w)/g, (c) => c.toUpperCase())
@@ -97,10 +92,13 @@ function mapDaemonModelToKaiCatalog(m: DaemonModel): Record<string, unknown> {
   for (const p of m.providers ?? []) tags.push(`provider:${p}`);
   for (const i of m.instances ?? []) tags.push(`instance:${i}`);
 
+  // All models use the 'legionio' provider (openai-compatible) since the
+  // daemon's /v1/chat/completions endpoint handles all model types
+  // (Anthropic, OpenAI, etc.) in standard OpenAI format.
   return {
     key: m.id,
     displayName,
-    provider,
+    provider: 'legionio',
     modelName: m.id,
     ...(m.max_context ? { maxInputTokens: m.max_context } : {}),
     tags,
@@ -146,21 +144,15 @@ async function syncModelCatalog(api: PluginAPI): Promise<void> {
 
     const legionEntries = sortedChatModels.map(mapDaemonModelToKaiCatalog);
 
-    // Register catalog providers using Kai-compatible type values.
-    // These entries are cosmetic — actual inference bypasses Kai's model pipeline
-    // entirely and goes direct to the daemon via streamDaemonInference().
-    // The endpoint and apiKey here are never called; they just satisfy the
-    // providerSchema so Kai doesn't strip the entries on config parse.
+    // Register the legionio provider pointing at the daemon's OpenAI-compatible
+    // /v1/chat/completions endpoint. Kai's Mastra runtime uses this directly
+    // via the AI SDK's openai-compatible adapter — tools, maxSteps, retries all
+    // work natively without a custom inference provider bypass.
     api.config.set('models.providers.legionio', {
       type: 'openai-compatible',
-      endpoint: `${config.daemonUrl}/api/llm/inference`,
+      endpoint: `${config.daemonUrl}/v1`,
       apiKey: 'legionio-daemon',
       useResponsesApi: false,
-    });
-    api.config.set('models.providers.legionio_anthropic', {
-      type: 'anthropic',
-      endpoint: `${config.daemonUrl}/api/llm/inference`,
-      apiKey: 'legionio-daemon',
     });
 
     // Merge with existing catalog: strip any previous legion entries, then prepend new ones.
@@ -202,25 +194,17 @@ function ensureRuntimeRegistration(api: PluginAPI, config: PluginConfig): void {
 }
 
 // ── Inference provider registration ──────────────────────────────────────────
+// NOTE: The inference provider bypass has been removed. Legion models now route
+// through Kai's standard Mastra pipeline via the 'legionio' provider config
+// (type: openai-compatible, endpoint: daemon /v1/chat/completions). Mastra
+// handles tool execution, maxSteps, retries, and all standard agent features
+// natively. The custom daemon-inference.ts SSE parser is still used by the
+// `daemon` tool for non-chat actions but is no longer in the inference path.
 
-function ensureBackendRegistration(api: PluginAPI, config: PluginConfig): void {
-  const shouldRegister = Boolean(config.enabled && config.daemonUrl);
-
-  if (shouldRegister && !backendRegistered) {
-    api.agent.registerInferenceProvider({
-      name: 'LegionIO',
-      isAvailable: () => isDaemonOnline(),
-      stream: (options: Parameters<typeof streamDaemonInference>[0]) =>
-        streamDaemonInference(options),
-    });
-    backendRegistered = true;
-    return;
-  }
-
-  if (!shouldRegister && backendRegistered) {
-    api.agent.unregisterInferenceProvider();
-    backendRegistered = false;
-  }
+function ensureBackendRegistration(_api: PluginAPI, _config: PluginConfig): void {
+  // No-op: inference provider bypass removed.
+  // The legionio provider config registered in syncModelCatalog() is sufficient
+  // for Mastra to route inference through the daemon's OpenAI-compatible endpoint.
 }
 
 // ── Health polling ────────────────────────────────────────────────────────────
@@ -352,10 +336,6 @@ export async function activate(api: PluginAPI): Promise<void> {
 export async function deactivate(): Promise<void> {
   clearHealthPoll();
   setInferenceApi(null);
-  if (backendRegistered && currentApi) {
-    currentApi.agent.unregisterInferenceProvider();
-    backendRegistered = false;
-  }
   if (currentApi) {
     currentApi.agent.unregisterRuntime('legion');
   }
