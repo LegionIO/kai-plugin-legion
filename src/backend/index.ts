@@ -148,11 +148,32 @@ async function syncModelCatalog(api: PluginAPI): Promise<void> {
     // /v1/chat/completions endpoint. Kai's Mastra runtime uses this directly
     // via the AI SDK's openai-compatible adapter — tools, maxSteps, retries all
     // work natively without a custom inference provider bypass.
+    //
+    // Extra headers activate full pipeline features on the daemon side:
+    // - X-Legion-Client-Tool-Passthrough: tells daemon to return tool calls for
+    //   client execution rather than executing server-side
+    // - X-Legion-Include-Reasoning: enables reasoning/thinking token streaming
+    const pluginData = (api.config.getPluginData() || {}) as Record<string, unknown>;
+    const extraHeaders: Record<string, string> = {
+      'X-Legion-Client-Tool-Passthrough': 'true',
+    };
+
+    // Forward per-conversation routing defaults if configured
+    const defaultTier = (pluginData.defaultTier as string) || '';
+    const defaultProvider = (pluginData.defaultProvider as string) || '';
+    if (defaultTier) extraHeaders['X-Legion-Tier'] = defaultTier;
+    if (defaultProvider) extraHeaders['X-Legion-Provider'] = defaultProvider;
+
+    // Forward knowledge config
+    if (pluginData.knowledgeRagEnabled === true) extraHeaders['X-Legion-Rag-Enabled'] = 'true';
+    if (pluginData.knowledgeCaptureEnabled === true) extraHeaders['X-Legion-Capture-Enabled'] = 'true';
+
     api.config.set('models.providers.legionio', {
       type: 'openai-compatible',
       endpoint: `${config.daemonUrl}/v1`,
       apiKey: 'legionio-daemon',
       useResponsesApi: false,
+      extraHeaders,
     });
 
     // Merge with existing catalog: strip any previous legion entries, then prepend new ones.
