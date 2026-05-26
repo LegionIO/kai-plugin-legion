@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.1.2] - 2026-05-26
+
+### Fixed
+- Force `agent.runtime = 'legion'` when native mode is active so the inference provider is actually invoked (fixes 404 on `/api/llm/inference/chat/completions`)
+- Always use `/v1` as the provider base URL — the AI SDK appends `/chat/completions` automatically; in native mode the inference provider intercepts before it's reached
+
 ## [2.1.0] - 2026-05-25
 
 ### Added

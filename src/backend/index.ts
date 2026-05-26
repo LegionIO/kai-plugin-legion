@@ -149,17 +149,16 @@ async function syncModelCatalog(api: PluginAPI): Promise<void> {
 
     const legionEntries = sortedChatModels.map(mapDaemonModelToKaiCatalog);
 
-    // Register the legionio provider. The endpoint depends on the user's
-    // apiEndpoint setting:
-    //   'openai' → /v1/chat/completions (OpenAI-compatible, Mastra handles tools)
-    //   'native' → /api/llm/inference (full pipeline, plugin handles tools via SSE)
+    // Register the legionio provider pointing at the daemon's /v1 endpoint.
+    // The AI SDK appends /chat/completions to this base URL automatically.
     //
-    // In 'openai' mode, extra headers with {placeholder} syntax are resolved
-    // per-request by Kai's streaming infrastructure.
+    // In 'native' mode, the registered inference provider intercepts all
+    // inference before it reaches this endpoint. In 'openai' mode, Mastra
+    // uses this provider config directly via the AI SDK.
+    //
+    // Extra headers with {placeholder} syntax are resolved per-request by
+    // Kai's streaming infrastructure.
     const pluginData = (api.config.getPluginData() || {}) as Record<string, unknown>;
-    const providerEndpoint = config.apiEndpoint === 'openai'
-      ? `${config.daemonUrl}/v1`
-      : `${config.daemonUrl}/api/llm/inference`;
 
     const extraHeaders: Record<string, string> = {
       'X-Legion-Client-Tool-Passthrough': 'true',
@@ -180,7 +179,7 @@ async function syncModelCatalog(api: PluginAPI): Promise<void> {
 
     api.config.set('models.providers.legionio', {
       type: 'openai-compatible',
-      endpoint: providerEndpoint,
+      endpoint: `${config.daemonUrl}/v1`,
       apiKey: 'legionio-daemon',
       useResponsesApi: false,
       extraHeaders,
@@ -237,12 +236,14 @@ function ensureBackendRegistration(api: PluginAPI, config: PluginConfig): void {
         streamDaemonInference(options),
     });
     backendRegistered = true;
+    api.config.set('agent.runtime', 'legion');
     return;
   }
 
   if (!shouldRegister && backendRegistered) {
     api.agent.unregisterInferenceProvider();
     backendRegistered = false;
+    api.config.set('agent.runtime', 'auto');
   }
 }
 
