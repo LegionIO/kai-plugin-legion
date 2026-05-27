@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [2.1.6] - 2026-05-27
+
+### Fixed
+- Normalize daemon token usage events from Legion native, context-usage, and OpenAI-compatible payload shapes so Kai can show input/output token counts in the message info popover again.
+
 ## [2.1.5] - 2026-05-27
 
 ### Fixed
