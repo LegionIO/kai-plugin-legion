@@ -90,7 +90,7 @@ export function SettingsView({
         </legend>
 
         <p className="text-xs text-muted-foreground">
-          When enabled and the daemon is online, all LLM inference routes through LegionIO — including tool calls, compaction, and memory.
+          When enabled, Kai selects LegionIO as the runtime and routes LLM inference through the local daemon.
         </p>
 
         {/* Enable toggle */}
@@ -126,10 +126,10 @@ export function SettingsView({
           />
         </div>
 
-        {/* API Endpoint */}
+        {/* Daemon API mode */}
         <div>
           <label className="text-xs text-muted-foreground block mb-1">
-            API Endpoint
+            Daemon API Mode
           </label>
           <select
             className="w-full rounded-xl border border-border/70 bg-card/80 px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-ring outline-none"
@@ -142,8 +142,7 @@ export function SettingsView({
             <option value="openai">/v1/chat/completions (OpenAI-compatible)</option>
           </select>
           <p className="text-[10px] text-muted-foreground mt-1">
-            Native uses the full Legion pipeline with thinking, enrichments, and tool passthrough.
-            OpenAI-compatible uses the standard format via Kai's Mastra runtime.
+            This selects the daemon protocol. The preferred runtime checkbox controls whether Kai routes inference through LegionIO.
           </p>
         </div>
 

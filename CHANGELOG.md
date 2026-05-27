@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [2.1.5] - 2026-05-27
+
+### Fixed
+- Preferred runtime mode now keeps `agent.runtime='legion'` in both native and OpenAI-compatible daemon modes, so enabling LegionIO routes inference through the local daemon regardless of daemon protocol selection.
+
+## [2.1.4] - 2026-05-26
+
 ### Fixed
 - Health poll no longer overrides endpoint mode — `checkHealth` was unconditionally setting `agent.runtime='legion'` on daemon online transition, forcing native mode even when OpenAI-compatible was selected
 
