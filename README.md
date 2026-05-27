@@ -1,14 +1,15 @@
 # kai-plugin-legion
 
-LegionIO inference runtime plugin for [Kai desktop](https://github.com/LegionIO/kai-desktop). When enabled and the daemon is online, all LLM inference routes through the LegionIO daemon. Falls back to Kai's built-in pipeline automatically when the daemon is offline.
+LegionIO inference runtime plugin for [Kai desktop](https://github.com/LegionIO/kai-desktop). When enabled, all LLM inference routes through the LegionIO daemon. If the daemon is unavailable, requests fail instead of falling back to Kai's built-in runtime.
 
 ## What it does
 
 - **Inference routing** — registers as Kai's primary inference provider; all tool calls, compaction, memory, and chat stream through `/api/llm/inference`
+- **Daemon-selected default model** — adds a synthetic `Legionio` model that routes through LegionIO without forcing a concrete model ID
 - **Live model catalog** — fetches the daemon's model list on startup and merges it into Kai's catalog (vllm models first, non-chat models excluded); re-syncs whenever the daemon comes back online
 - **Status banner** — shows "LegionIO ● Available" (green) or "LegionIO ● Unavailable" (amber) in the Kai header; polls every 30 seconds
 - **`daemon` tool** — a single conversation tool with 11 actions covering daemon health, knowledge, memory, workers, tasks, and arbitrary API calls
-- **Automatic fallback** — if the daemon goes offline mid-session, Kai's built-in pipeline takes over with no user intervention
+- **Fail-closed routing** — if the daemon goes offline mid-session, Kai surfaces the daemon failure instead of using another runtime
 
 ## Quick start
 

@@ -4,13 +4,14 @@
  * Registers LegionIO as the preferred inference runtime in Kai.
  * When enabled and the daemon is online, all LLM inference (tool calls,
  * compaction, memory, etc.) routes through the LegionIO daemon.
- * Falls back to Kai's built-in pipeline automatically when offline.
+ * Fails closed when offline so Kai never silently routes Legion-owned
+ * requests through another runtime.
  */
 
 import type { PluginAPI, PluginConfig } from '../shared/types.js';
 import { HEALTH_POLL_MS, BANNER_ID } from '../shared/constants.js';
 import { isDaemonOnline, streamDaemonInference, setInferenceApi } from './daemon-inference.js';
-import { daemonJson, markDaemonReachable, isDaemonReachable, setConfigProvider } from './daemon-client.js';
+import { daemonJson, markDaemonReachable, setConfigProvider } from './daemon-client.js';
 import { registerTool } from './tool.js';
 
 // ── Module state ─────────────────────────────────────────────────────────────
@@ -18,6 +19,7 @@ import { registerTool } from './tool.js';
 let currentApi: PluginAPI | null = null;
 let healthPollTimer: ReturnType<typeof setInterval> | null = null;
 let backendRegistered = false;
+const LEGION_DEFAULT_MODEL_KEY = 'legionio';
 
 // ── Config helper ─────────────────────────────────────────────────────────────
 
@@ -51,7 +53,7 @@ export function shouldPreferLegionRuntime(config: PluginConfig): boolean {
 }
 
 export function shouldRegisterNativeInferenceProvider(config: PluginConfig): boolean {
-  return Boolean(shouldPreferLegionRuntime(config) && config.apiEndpoint === 'native');
+  return shouldPreferLegionRuntime(config);
 }
 
 function setAgentRuntime(api: PluginAPI, runtime: 'legion' | 'auto'): void {
@@ -167,7 +169,17 @@ async function syncModelCatalog(api: PluginAPI): Promise<void> {
       return 0;
     });
 
-    const legionEntries = sortedChatModels.map(mapDaemonModelToKaiCatalog);
+    const legionDefaultEntry = {
+      key: LEGION_DEFAULT_MODEL_KEY,
+      displayName: 'Legionio',
+      provider: 'legionio',
+      modelName: LEGION_DEFAULT_MODEL_KEY,
+      tags: ['runtime:legion'],
+    };
+    const legionEntries = [
+      legionDefaultEntry,
+      ...sortedChatModels.map(mapDaemonModelToKaiCatalog),
+    ];
 
     // Register the legionio provider pointing at the daemon's /v1 endpoint.
     // The AI SDK appends /chat/completions to this base URL automatically.
@@ -215,11 +227,8 @@ async function syncModelCatalog(api: PluginAPI): Promise<void> {
     const mergedCatalog = [...legionEntries, ...withoutLegion];
     api.config.set('models.catalog', mergedCatalog);
 
-    // Default to the first legion model if no default is set (or current default is unknown)
-    const currentDefault = appConfig?.models?.defaultModelKey;
-    const allKeys = new Set(mergedCatalog.map((m) => m.key));
-    if (!currentDefault || !allKeys.has(currentDefault)) {
-      api.config.set('models.defaultModelKey', legionEntries[0].key);
+    if (appConfig?.models?.defaultModelKey !== LEGION_DEFAULT_MODEL_KEY) {
+      api.config.set('models.defaultModelKey', LEGION_DEFAULT_MODEL_KEY);
     }
 
     api.log.info(`[legion] Model catalog synced: ${legionEntries.length} legion models (${mergedCatalog.length} total)`);
@@ -230,13 +239,13 @@ async function syncModelCatalog(api: PluginAPI): Promise<void> {
 
 // ── Runtime contribution ──────────────────────────────────────────────────────
 
-function ensureRuntimeRegistration(api: PluginAPI, config: PluginConfig): void {
+export function ensureRuntimeRegistration(api: PluginAPI, config: PluginConfig): void {
   if (shouldPreferLegionRuntime(config)) {
     api.agent.registerRuntime({
       id: 'legion',
       name: 'LegionIO',
-      description: 'LegionIO daemon runtime. Routes all inference through the local LegionIO daemon with automatic model selection, memory, and tool support. Falls back to Kai\'s built-in pipeline when the daemon is offline.',
-      isAvailable: () => isDaemonReachable(),
+      description: 'LegionIO daemon runtime. Routes all inference through the local LegionIO daemon with automatic model selection, memory, and tool support. Fails closed when the daemon is offline.',
+      isAvailable: () => shouldPreferLegionRuntime(getPluginConfig(api)),
     });
     setAgentRuntime(api, 'legion');
   } else {
@@ -247,13 +256,13 @@ function ensureRuntimeRegistration(api: PluginAPI, config: PluginConfig): void {
 
 // ── Inference provider registration ──────────────────────────────────────────
 
-function ensureBackendRegistration(api: PluginAPI, config: PluginConfig): void {
+export function ensureBackendRegistration(api: PluginAPI, config: PluginConfig): void {
   const shouldRegister = shouldRegisterNativeInferenceProvider(config);
 
   if (shouldRegister && !backendRegistered) {
     api.agent.registerInferenceProvider({
       name: 'LegionIO',
-      isAvailable: () => isDaemonReachable(),
+      isAvailable: () => shouldPreferLegionRuntime(getPluginConfig(api)),
       stream: (options: Parameters<typeof streamDaemonInference>[0]) =>
         streamDaemonInference(options),
     });
@@ -286,12 +295,13 @@ async function checkHealth(api: PluginAPI): Promise<void> {
 
   updateBanner(api, isOnline);
 
+  if (shouldPreferLegionRuntime(config)) {
+    setAgentRuntime(api, 'legion');
+  }
+
   // Sync model catalog when daemon comes online (or on first online check)
   if (isOnline && wasOffline) {
     void syncModelCatalog(api);
-    if (shouldPreferLegionRuntime(config)) {
-      setAgentRuntime(api, 'legion');
-    }
   }
 }
 
