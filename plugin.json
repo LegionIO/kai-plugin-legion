@@ -1,8 +1,8 @@
 {
   "name": "legion",
   "displayName": "LegionIO",
-  "version": "2.1.6",
-  "description": "Routes LLM inference through the LegionIO daemon when online, with automatic fallback to Kai's built-in pipeline. Syncs the daemon's live model catalog into Kai and exposes daemon tools for knowledge, memory, workers, and tasks.",
+  "version": "2.1.7",
+  "description": "Routes LLM inference through the LegionIO daemon and fails closed when the daemon is unavailable. Syncs the daemon's live model catalog into Kai and exposes daemon tools for knowledge, memory, workers, and tasks.",
   "icon": {
     "lucide": "cpu"
   },

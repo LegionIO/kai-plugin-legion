@@ -2,8 +2,8 @@
  * Daemon inference provider for the Kai plugin API.
  *
  * Streams LLM inference through the Legion daemon's /api/llm/inference
- * endpoint. When the daemon is online this provider handles all inference;
- * when offline Kai's standard Mastra pipeline takes over automatically.
+ * endpoint. When LegionIO is the selected runtime this provider owns the
+ * request; daemon failures are surfaced instead of falling back to Mastra.
  *
  * SSE parsing adapted from legion-interlink/electron/agent/app-runtime.ts.
  */
@@ -58,7 +58,7 @@ export type InferenceTool = {
 export type InferenceStreamOptions = {
   conversationId: string;
   messages: Array<{ role: string; content: unknown }>;
-  modelKey: string;
+  modelKey?: string;
   systemPrompt: string;
   reasoningEffort?: string;
   abortSignal?: AbortSignal;
@@ -84,6 +84,7 @@ export type TokenUsageData = {
 // ── Module state ────────────────────────────────────────────────────────
 
 let cachedApi: PluginAPI | null = null;
+const DEFAULT_MODEL_KEYS = new Set(['legion', 'legionio']);
 
 export function setInferenceApi(api: PluginAPI | null): void {
   cachedApi = api;
@@ -250,7 +251,9 @@ export async function* streamDaemonInference(
   const convRouting = routingMap[options.conversationId] || {};
 
   const routingDefaults: Record<string, unknown> = {};
-  if (options.modelKey) routingDefaults.model = options.modelKey;
+  if (options.modelKey && !DEFAULT_MODEL_KEYS.has(options.modelKey.toLowerCase())) {
+    routingDefaults.model = options.modelKey;
+  }
   if (options.provider) routingDefaults.provider = options.provider;
   if (options.tier) routingDefaults.tier = options.tier;
 
