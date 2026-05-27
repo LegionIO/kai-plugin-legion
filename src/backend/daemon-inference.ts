@@ -73,12 +73,90 @@ export type InferenceStreamOptions = {
   tools?: InferenceTool[];
 };
 
+export type TokenUsageData = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+};
+
 // ── Module state ────────────────────────────────────────────────────────
 
 let cachedApi: PluginAPI | null = null;
 
 export function setInferenceApi(api: PluginAPI | null): void {
   cachedApi = api;
+}
+
+const USAGE_INPUT_KEYS = ['inputTokens', 'input_tokens', 'promptTokens', 'prompt_tokens'];
+const USAGE_OUTPUT_KEYS = ['outputTokens', 'output_tokens', 'completionTokens', 'completion_tokens'];
+const USAGE_CACHE_READ_KEYS = [
+  'cacheReadTokens',
+  'cache_read_tokens',
+  'cacheReadInputTokens',
+  'cache_read_input_tokens',
+  'cachedInputTokens',
+  'cached_input_tokens',
+];
+const USAGE_CACHE_WRITE_KEYS = [
+  'cacheWriteTokens',
+  'cache_write_tokens',
+  'cacheCreationInputTokens',
+  'cache_creation_input_tokens',
+];
+const USAGE_TOTAL_KEYS = ['totalTokens', 'total_tokens'];
+
+function toTokenCount(value: unknown): number | undefined {
+  if (typeof value !== 'number' && typeof value !== 'string') return undefined;
+  if (typeof value === 'string' && value.trim().length === 0) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
+}
+
+function readTokenCount(record: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const count = toTokenCount(record[key]);
+    if (count !== undefined) return count;
+  }
+  const nested = record.usage;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    for (const key of keys) {
+      const count = toTokenCount((nested as Record<string, unknown>)[key]);
+      if (count !== undefined) return count;
+    }
+  }
+  return undefined;
+}
+
+export function normalizeTokenUsage(value: unknown): TokenUsageData | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const inputTokens = readTokenCount(record, USAGE_INPUT_KEYS);
+  const outputTokens = readTokenCount(record, USAGE_OUTPUT_KEYS);
+  const cacheReadTokens = readTokenCount(record, USAGE_CACHE_READ_KEYS);
+  const cacheWriteTokens = readTokenCount(record, USAGE_CACHE_WRITE_KEYS);
+  const totalTokens = readTokenCount(record, USAGE_TOTAL_KEYS);
+
+  if (
+    inputTokens === undefined
+    && outputTokens === undefined
+    && cacheReadTokens === undefined
+    && cacheWriteTokens === undefined
+    && totalTokens === undefined
+  ) {
+    return null;
+  }
+
+  const normalizedInput = inputTokens ?? 0;
+  const normalizedOutput = outputTokens ?? 0;
+  return {
+    inputTokens: normalizedInput,
+    outputTokens: normalizedOutput,
+    cacheReadTokens: cacheReadTokens ?? 0,
+    cacheWriteTokens: cacheWriteTokens ?? 0,
+    totalTokens: totalTokens ?? normalizedInput + normalizedOutput,
+  };
 }
 
 // ── Working directory resolution ───────────────────────────────────────
@@ -893,26 +971,12 @@ async function* consumeDaemonSSE(
         if (enrichments && typeof enrichments === 'object' && !Array.isArray(enrichments)) {
           events.push({ conversationId, type: 'enrichment', data: enrichments });
         }
-        // Extract token usage and emit as context-usage
-        const toCount = (v: unknown): number | undefined => {
-          const n = Number(v);
-          return Number.isFinite(n) ? n : undefined;
-        };
-        const inputTokens = toCount(payload.input_tokens ?? payload.inputTokens);
-        const outputTokens = toCount(payload.output_tokens ?? payload.outputTokens);
-        const cacheReadTokens = toCount(payload.cache_read_tokens ?? payload.cacheReadTokens);
-        const cacheWriteTokens = toCount(payload.cache_write_tokens ?? payload.cacheWriteTokens);
-        if (inputTokens !== undefined || outputTokens !== undefined) {
+        const usage = normalizeTokenUsage(payload);
+        if (usage) {
           events.push({
             conversationId,
             type: 'context-usage',
-            data: {
-              inputTokens: inputTokens ?? 0,
-              outputTokens: outputTokens ?? 0,
-              cacheReadTokens: cacheReadTokens ?? 0,
-              cacheWriteTokens: cacheWriteTokens ?? 0,
-              totalTokens: (inputTokens ?? 0) + (outputTokens ?? 0),
-            },
+            data: usage,
           });
         }
         // Extract the model actually used by the daemon and stamp it into
@@ -930,7 +994,7 @@ async function* consumeDaemonSSE(
       }
 
       if (eventName === 'context_usage' || eventName === 'context-usage') {
-        return [{ conversationId, type: 'context-usage', data: payload }];
+        return [{ conversationId, type: 'context-usage', data: normalizeTokenUsage(payload) ?? payload }];
       }
 
       if (eventName === 'model-fallback' || eventName === 'model_fallback') {

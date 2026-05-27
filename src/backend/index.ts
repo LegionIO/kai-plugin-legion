@@ -46,6 +46,26 @@ export function getPluginConfig(api: PluginAPI): PluginConfig {
   };
 }
 
+export function shouldPreferLegionRuntime(config: PluginConfig): boolean {
+  return Boolean(config.enabled && config.daemonUrl);
+}
+
+export function shouldRegisterNativeInferenceProvider(config: PluginConfig): boolean {
+  return Boolean(shouldPreferLegionRuntime(config) && config.apiEndpoint === 'native');
+}
+
+function setAgentRuntime(api: PluginAPI, runtime: 'legion' | 'auto'): void {
+  const appConfig = api.config.get?.() as { agent?: { runtime?: string } } | null | undefined;
+  if (appConfig?.agent?.runtime === runtime) return;
+  api.config.set('agent.runtime', runtime);
+}
+
+function clearLegionRuntime(api: PluginAPI): void {
+  const appConfig = api.config.get?.() as { agent?: { runtime?: string } } | null | undefined;
+  if (appConfig?.agent?.runtime !== 'legion') return;
+  api.config.set('agent.runtime', 'auto');
+}
+
 // ── Model catalog sync ────────────────────────────────────────────────────────
 
 type DaemonModel = {
@@ -211,22 +231,24 @@ async function syncModelCatalog(api: PluginAPI): Promise<void> {
 // ── Runtime contribution ──────────────────────────────────────────────────────
 
 function ensureRuntimeRegistration(api: PluginAPI, config: PluginConfig): void {
-  if (config.enabled) {
+  if (shouldPreferLegionRuntime(config)) {
     api.agent.registerRuntime({
       id: 'legion',
       name: 'LegionIO',
       description: 'LegionIO daemon runtime. Routes all inference through the local LegionIO daemon with automatic model selection, memory, and tool support. Falls back to Kai\'s built-in pipeline when the daemon is offline.',
       isAvailable: () => isDaemonReachable(),
     });
+    setAgentRuntime(api, 'legion');
   } else {
     api.agent.unregisterRuntime('legion');
+    clearLegionRuntime(api);
   }
 }
 
 // ── Inference provider registration ──────────────────────────────────────────
 
 function ensureBackendRegistration(api: PluginAPI, config: PluginConfig): void {
-  const shouldRegister = Boolean(config.enabled && config.daemonUrl && config.apiEndpoint === 'native');
+  const shouldRegister = shouldRegisterNativeInferenceProvider(config);
 
   if (shouldRegister && !backendRegistered) {
     api.agent.registerInferenceProvider({
@@ -236,14 +258,12 @@ function ensureBackendRegistration(api: PluginAPI, config: PluginConfig): void {
         streamDaemonInference(options),
     });
     backendRegistered = true;
-    api.config.set('agent.runtime', 'legion');
     return;
   }
 
   if (!shouldRegister && backendRegistered) {
     api.agent.unregisterInferenceProvider();
     backendRegistered = false;
-    api.config.set('agent.runtime', 'auto');
   }
 }
 
@@ -269,8 +289,8 @@ async function checkHealth(api: PluginAPI): Promise<void> {
   // Sync model catalog when daemon comes online (or on first online check)
   if (isOnline && wasOffline) {
     void syncModelCatalog(api);
-    if (config.apiEndpoint === 'native') {
-      api.config.set('agent.runtime', 'legion');
+    if (shouldPreferLegionRuntime(config)) {
+      setAgentRuntime(api, 'legion');
     }
   }
 }

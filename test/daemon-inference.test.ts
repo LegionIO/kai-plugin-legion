@@ -7,6 +7,7 @@
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { normalizeTokenUsage } from '../src/backend/daemon-inference.js';
 
 // ── Inline helpers (replicated from source to avoid import issues) ──────
 
@@ -106,6 +107,47 @@ describe('normalizeOpenAIToolCalls', () => {
     assert.deepEqual(normalizeOpenAIToolCalls(undefined), []);
     assert.deepEqual(normalizeOpenAIToolCalls('string'), []);
     assert.deepEqual(normalizeOpenAIToolCalls({}), []);
+  });
+});
+
+describe('normalizeTokenUsage', () => {
+  it('accepts Legion daemon snake_case usage fields', () => {
+    assert.deepEqual(normalizeTokenUsage({
+      input_tokens: '4200',
+      output_tokens: 3600,
+      cache_read_tokens: 120,
+      cache_write_tokens: 8,
+    }), {
+      inputTokens: 4200,
+      outputTokens: 3600,
+      cacheReadTokens: 120,
+      cacheWriteTokens: 8,
+      totalTokens: 7800,
+    });
+  });
+
+  it('accepts OpenAI-compatible prompt/completion token fields', () => {
+    assert.deepEqual(normalizeTokenUsage({
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 55,
+        total_tokens: 155,
+      },
+    }), {
+      inputTokens: 100,
+      outputTokens: 55,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 155,
+    });
+  });
+
+  it('returns null for non-token context usage events', () => {
+    assert.equal(normalizeTokenUsage({
+      usedTokens: 1000,
+      contextWindowTokens: 128000,
+      phase: 'pre-compaction',
+    }), null);
   });
 });
 
