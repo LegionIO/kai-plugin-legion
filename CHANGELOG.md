@@ -7,6 +7,7 @@
 ### Fixed
 - Fail closed when LegionIO is enabled as Kai's preferred runtime: the plugin now keeps its runtime and inference provider available to Kai even if the daemon is offline, so requests surface daemon errors instead of silently falling back to Mastra.
 - Make the synthetic `Legionio` model the global default for new chats while the plugin is enabled; it omits a concrete model override so the daemon chooses the model.
+- Stop forwarding Kai-local plugin tools such as `plugin__aithena__recall`, `plugin__aithena__remember`, and `plugin__cron__create` to the LegionIO daemon.
 
 ## [2.1.6] - 2026-05-27
 

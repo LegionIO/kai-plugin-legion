@@ -487,13 +487,11 @@ function normalizeToolSchema(tool: InferenceTool): Record<string, unknown> {
     ?? zodToJsonSchemaObject(tool.inputSchema);
 }
 
-function shouldForwardToolToDaemon(tool: InferenceTool): boolean {
-  // The Legion plugin's own Kai-side tool is a wrapper around the same daemon.
-  // If advertised to the daemon, the model can call it, but there is no
-  // host-tool execution bridge in the plugin inference-provider path, so Kai
-  // receives a tool-call with no matching tool-result and marks it hung.
-  if (tool.source === 'plugin' && tool.sourceId === 'legion') return false;
-  if (tool.name === 'plugin__legion__daemon') return false;
+export function shouldForwardToolToDaemon(tool: Pick<InferenceTool, 'name' | 'source'>): boolean {
+  // Kai plugin tools are local UI/plugin implementation details. Do not expose
+  // them to LegionIO as daemon client tools.
+  if (tool.source === 'plugin') return false;
+  if (tool.name.startsWith('plugin__')) return false;
   return true;
 }
 

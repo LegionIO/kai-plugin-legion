@@ -7,7 +7,10 @@
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeTokenUsage } from '../src/backend/daemon-inference.js';
+import {
+  normalizeTokenUsage,
+  shouldForwardToolToDaemon,
+} from '../src/backend/daemon-inference.js';
 
 // ── Inline helpers (replicated from source to avoid import issues) ──────
 
@@ -148,6 +151,21 @@ describe('normalizeTokenUsage', () => {
       contextWindowTokens: 128000,
       phase: 'pre-compaction',
     }), null);
+  });
+});
+
+describe('shouldForwardToolToDaemon', () => {
+  it('does not advertise Kai plugin tools to the Legion daemon', () => {
+    assert.equal(shouldForwardToolToDaemon({ name: 'plugin__aithena__recall', source: 'plugin' }), false);
+    assert.equal(shouldForwardToolToDaemon({ name: 'plugin__cron__create', source: 'plugin' }), false);
+    assert.equal(shouldForwardToolToDaemon({ name: 'plugin__legacy__tool' }), false);
+  });
+
+  it('advertises built-in, CLI, MCP, and skill tools', () => {
+    assert.equal(shouldForwardToolToDaemon({ name: 'bash', source: 'builtin' }), true);
+    assert.equal(shouldForwardToolToDaemon({ name: 'legionio', source: 'cli' }), true);
+    assert.equal(shouldForwardToolToDaemon({ name: 'mcp__github__search', source: 'mcp' }), true);
+    assert.equal(shouldForwardToolToDaemon({ name: 'skill__review', source: 'skill' }), true);
   });
 });
 
