@@ -274,9 +274,9 @@ async function checkHealth(api: PluginAPI): Promise<void> {
 
   updateBanner(api, isOnline);
 
-  if (shouldPreferLegionRuntime(config)) {
-    setAgentRuntime(api, 'legion');
-  }
+  // Removed: setAgentRuntime call - health checks should be read-only,
+  // not mutate global runtime config. Runtime preferences are managed by
+  // ensureBackendRegistration during activation and config change events.
 
   // Sync model catalog when daemon comes online (or on first online check)
   if (isOnline && wasOffline) {
