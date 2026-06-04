@@ -56,17 +56,8 @@ export function shouldRegisterNativeInferenceProvider(config: PluginConfig): boo
   return shouldPreferLegionRuntime(config);
 }
 
-function setAgentRuntime(api: PluginAPI, runtime: 'legion' | 'auto'): void {
-  const appConfig = api.config.get?.() as { agent?: { runtime?: string } } | null | undefined;
-  if (appConfig?.agent?.runtime === runtime) return;
-  api.config.set('agent.runtime', runtime);
-}
-
-function clearLegionRuntime(api: PluginAPI): void {
-  const appConfig = api.config.get?.() as { agent?: { runtime?: string } } | null | undefined;
-  if (appConfig?.agent?.runtime !== 'legion') return;
-  api.config.set('agent.runtime', 'auto');
-}
+// Removed: setAgentRuntime and clearLegionRuntime functions are no longer needed
+// after the runtime contribution API was deprecated in favor of inference providers.
 
 // ── Model catalog sync ────────────────────────────────────────────────────────
 
@@ -237,22 +228,10 @@ async function syncModelCatalog(api: PluginAPI): Promise<void> {
   }
 }
 
-// ── Runtime contribution ──────────────────────────────────────────────────────
-
-export function ensureRuntimeRegistration(api: PluginAPI, config: PluginConfig): void {
-  if (shouldPreferLegionRuntime(config)) {
-    api.agent.registerRuntime({
-      id: 'legion',
-      name: 'LegionIO',
-      description: 'LegionIO daemon runtime. Routes all inference through the local LegionIO daemon with automatic model selection, memory, and tool support. Fails closed when the daemon is offline.',
-      isAvailable: () => shouldPreferLegionRuntime(getPluginConfig(api)),
-    });
-    setAgentRuntime(api, 'legion');
-  } else {
-    api.agent.unregisterRuntime('legion');
-    clearLegionRuntime(api);
-  }
-}
+// ── Runtime contribution (REMOVED) ───────────────────────────────────────────
+// The registerRuntime API was deprecated in kai-desktop commit 94b579f (2026-05-28).
+// LegionIO now contributes via the inference provider API (ensureBackendRegistration)
+// which is the supported path for plugin-contributed LLM backends.
 
 // ── Inference provider registration ──────────────────────────────────────────
 
@@ -357,7 +336,6 @@ export async function activate(api: PluginAPI): Promise<void> {
 
   const config = getPluginConfig(api);
   ensureBackendRegistration(api, config);
-  ensureRuntimeRegistration(api, config);
   registerTool(api);
 
   // Register the legionio CLI tool so agents can call it
@@ -393,7 +371,6 @@ export async function activate(api: PluginAPI): Promise<void> {
   api.config.onChanged(() => {
     const updated = getPluginConfig(api);
     ensureBackendRegistration(api, updated);
-    ensureRuntimeRegistration(api, updated);
     scheduleHealthPoll(api);
     void checkHealth(api);
     if (isDaemonOnline()) {
@@ -409,8 +386,6 @@ export async function deactivate(): Promise<void> {
     currentApi.agent.unregisterInferenceProvider();
     backendRegistered = false;
   }
-  if (currentApi) {
-    currentApi.agent.unregisterRuntime('legion');
-  }
+  // Removed: unregisterRuntime('legion') call - deprecated API
   currentApi = null;
 }

@@ -1,7 +1,7 @@
 {
   "name": "legion",
   "displayName": "LegionIO",
-  "version": "2.1.8",
+  "version": "2.2.0",
   "description": "Routes LLM inference through the LegionIO daemon and fails closed when the daemon is unavailable. Syncs the daemon's live model catalog into Kai and exposes daemon tools for knowledge, memory, workers, and tasks.",
   "icon": {
     "lucide": "cpu"
@@ -16,7 +16,6 @@
     "network:fetch",
     "state:publish",
     "agent:inference-provider",
-    "agent:register-runtime",
     "agent:register-cli-tool"
   ],
   "configSchema": {
